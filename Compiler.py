@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-The NAL Compiler - Compile NAL to C, Assembly, or executable
+The Z Compiler - Compile Z to C, Assembly, or executable
 
 Usage:
-    python Compiler.py [options] <input.nal>
+    python Compiler.py [options] <input.z>
 
 Options:
-    -o, --output FILE    Output file name (default: input.c/input.s/input.exe)
+    -o, --output FILE    Output file name (default: output.c/output.s/output.exe)
     -f, --format FORMAT  Output format: c, asm, or exe (default: c)
     -h, --help           Show this help message
 """
@@ -20,9 +20,9 @@ import argparse
 # Supported instructions
 OPS = {"MOV", "ADD", "SUB", "MUL", "DIV", "CMP", "JMP", "JZ", "PRINT", "PRINTSTR", "HALT"}
 
-def parse_nal_file(nal_file):
-    """Parse NAL file and return instructions, variables, and labels."""
-    with open(nal_file, "r") as f:
+def parse_z_file(z_file):
+    """Parse Z file and return instructions, variables, and labels."""
+    with open(z_file, "r") as f:
         lines = f.readlines()
 
     instructions = []
@@ -315,8 +315,8 @@ def compile_to_exe(c_code, output_file):
 # CLI Entry
 # -------------------------
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Compile NAL to C, Assembly, or executable')
-    parser.add_argument('input', help='Input .nal file')
+    parser = argparse.ArgumentParser(description='Compile Z to C, Assembly, or executable')
+    parser.add_argument('input', help='Input .z file')
     parser.add_argument('-o', '--output', help='Output file')
     parser.add_argument('-f', '--format', choices=['c', 'asm', 'exe'], default='c',
                       help='Output format (default: c)')
@@ -334,8 +334,8 @@ if __name__ == "__main__":
         args.output = f"{base}.{ext}"
     
     try:
-        # Parse the NAL file
-        instructions, variables, labels = parse_nal_file(args.input)
+        # Parse the Z file
+        instructions, variables, labels = parse_z_file(args.input)
         
         # Generate output based on format
         if args.format == 'c':
