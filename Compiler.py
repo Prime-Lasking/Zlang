@@ -97,7 +97,11 @@ def generate_c_code(instructions, variables, labels):
         for var in variables:
             output.write(f"double {var} = 0;\n")
 
-    output.write("int main(){\n    int cmp_flag=0;\n")
+    # Check if we need cmp_flag (if there are any CMP, JZ, or JNZ instructions)
+    needs_cmp = any(instr in {'CMP', 'JZ', 'JNZ'} for instr, _ in instructions)
+    output.write("int main(){\n")
+    if needs_cmp:
+        output.write("    int cmp_flag=0;\n")
 
     for instr, operands in instructions:
         if instr.endswith(":"):
