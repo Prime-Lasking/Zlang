@@ -118,7 +118,24 @@ def generate_c_code(instructions, variables, labels):
             escaped_str = ' '.join(operands).replace('\\', '\\\\').replace('"', '\\"')
             output.write(f'    printf("{escaped_str}\\n");')
         elif instr == "CMP":
-            output.write(f'    cmp_flag = ({operands[0]}) - ({operands[1]});\n')
+            if len(operands) != 3:
+                raise ValueError("CMP requires three operands: CMP x y op")
+            left, right, op = operands
+            if op == "==":
+                output.write(f"    cmp_flag = ({left} == {right});\n")
+            elif op == "!=":
+             output.write(f"    cmp_flag = ({left} != {right});\n")
+            elif op == "<":
+              output.write(f"    cmp_flag = ({left} < {right});\n")
+            elif op == ">":
+              output.write(f"    cmp_flag = ({left} > {right});\n")
+            elif op == "<=":
+             output.write(f"    cmp_flag = ({left} <= {right});\n")
+            elif op == ">=":
+                output.write(f"    cmp_flag = ({left} >= {right});\n")
+            else:
+                raise ValueError(f"Unknown comparison operator: {op}")
+
         elif instr == "JMP":
             output.write(f'    goto {operands[0]};\n')
         elif instr == "JZ":
