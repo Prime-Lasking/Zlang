@@ -77,11 +77,26 @@ DIV x, 2       ; x = x / 2
 
 ### Control Flow
 
-#### `CMP a, b`
-Compares two values and sets the comparison flag for conditional jumps.
+#### `CMP a, b, op`
+Compares two values using the specified operator and sets the `cmp_flag` for conditional jumps (`JZ`, `JNZ`).
 
-```
-CMP x, y      ; Sets cmp_flag = x - y
+**Syntax:**
+
+**Supported operators:**
+- `==` (equal to)  
+- `!=` (not equal to)  
+- `<`  (less than)  
+- `>`  (greater than)  
+- `<=` (less than or equal to)  
+- `>=` (greater than or equal to)  
+
+**Examples:**
+```asm
+CMP x, y, ==       ; cmp_flag = (x == y)
+CMP a, b, !=       ; cmp_flag = (a != b)
+CMP i, 10, <       ; cmp_flag = (i < 10)
+CMP score, 100, >= ; cmp_flag = (score >= 100)
+
 ```
 
 #### `JMP label`
