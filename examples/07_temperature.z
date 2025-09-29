@@ -1,0 +1,16 @@
+; Convert Celsius to Fahrenheit
+; Formula: F = (C * 9/5) + 32
+MOV celsius, 25
+
+; Calculate Fahrenheit
+MOV fahrenheit, celsius
+MUL fahrenheit, 9
+DIV fahrenheit, 5
+ADD fahrenheit, 32
+
+; Print result
+PRINT celsius
+PRINTSTR "°C = "
+PRINT fahrenheit
+PRINTSTR "°F"
+HALT

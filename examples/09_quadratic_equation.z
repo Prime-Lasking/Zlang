@@ -1,0 +1,62 @@
+; Solve quadratic equation: ax² + bx + c = 0
+; Using the quadratic formula: x = (-b ± √(b²-4ac)) / (2a)
+
+; Coefficients
+MOV a, 1
+MOV b, -3
+MOV c, 2
+
+; Calculate discriminant: b² - 4ac
+MOV disc, b
+MUL disc, disc
+MOV temp, 4
+MUL temp, a
+MUL temp, c
+SUB disc, temp
+
+; Check discriminant
+CMP disc, 0
+JL no_real_roots
+JZ one_real_root
+
+; Two real roots
+SQRT disc, disc
+
+; First root: (-b + √disc) / (2a)
+MOV x1, -1
+MUL x1, b
+ADD x1, disc
+MOV denom, 2
+MUL denom, a
+DIV x1, denom
+
+; Second root: (-b - √disc) / (2a)
+MOV x2, -1
+MUL x2, b
+SUB x2, disc
+DIV x2, denom
+
+; Print results
+PRINTSTR "Roots: "
+PRINT x1
+PRINTSTR ", "
+PRINT x2
+JMP end
+
+one_real_root:
+    ; One real root: -b / (2a)
+    MOV x1, -1
+    MUL x1, b
+    MOV denom, 2
+    MUL denom, a
+    DIV x1, denom
+    
+    PRINTSTR "Double root: "
+    PRINT x1
+    JMP end
+
+no_real_roots:
+    PRINTSTR "No real roots"
+
+end:
+HALT

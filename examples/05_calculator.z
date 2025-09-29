@@ -1,0 +1,14 @@
+; Simple calculator: (a + b) * c - d
+MOV a, 5
+MOV b, 3
+MOV c, 2
+MOV d, 4
+
+; Calculate (a + b) * c - d
+ADD a, b      ; a = a + b
+MUL a, c      ; a = a * c
+SUB a, d      ; a = a - d
+
+PRINTSTR "Result: "
+PRINT a
+HALT

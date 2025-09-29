@@ -1,0 +1,57 @@
+; Calculate sum of an array of numbers
+; Array elements are stored in variables arr0, arr1, etc.
+
+; Initialize array (5 elements)
+MOV arr0, 10
+MOV arr1, 20
+MOV arr2, 30
+MOV arr3, 40
+MOV arr4, 50
+
+; Calculate sum
+MOV sum, 0
+MOV i, 0
+MOV array_size, 5
+
+sum_loop:
+    ; Load array element (this is a bit tricky without proper array support)
+    CMP i, 0
+    JNE check1
+    MOV current, arr0
+    JMP add_to_sum
+    
+    check1:
+    CMP i, 1
+    JNE check2
+    MOV current, arr1
+    JMP add_to_sum
+    
+    check2:
+    CMP i, 2
+    JNE check3
+    MOV current, arr2
+    JMP add_to_sum
+    
+    check3:
+    CMP i, 3
+    JNE check4
+    MOV current, arr3
+    JMP add_to_sum
+    
+    check4:
+    CMP i, 4
+    JNE end_loop
+    MOV current, arr4
+    
+    add_to_sum:
+    ADD sum, current
+    
+    ; Next element
+    ADD i, 1
+    CMP i, array_size
+    JLE sum_loop
+
+end_loop:
+PRINTSTR "Sum of array elements: "
+PRINT sum
+HALT
