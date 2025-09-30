@@ -22,6 +22,7 @@ A simple compiler that translates Z language source code into C or directly into
 - [Performance](#performance)
 - [License](#license)
 
+# Z
 ## Introduction
 
 Z is a simple, assembly-like programming language designed for educational purposes and lightweight scripting. It features a minimalistic syntax and a small set of instructions that compile to efficient C code, Z is a much slower than C or Rust but is 4x faster than Python and a bit faster than javascript.
