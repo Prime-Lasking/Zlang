@@ -20,7 +20,8 @@ import time
 from io import StringIO
 
 # Instruction set
-OPS = {"MOV", "ADD", "SUB", "MUL", "DIV", "CMP", "JMP", "JZ", "JNZ","PRINT", "PRINTSTR", "HALT"}
+OPS = {"MOV", "ADD", "SUB", "MUL", "DIV", "CMP", "JMP", "JZ", "JNZ","PRINT", 
+"PRINTSTR", "HALT","READ","MOD","INC","DEC","AND","OR","NOT"}
 
 # Reserved C keywords (forbidden as variable names)
 C_KEYWORDS = {
@@ -35,11 +36,18 @@ C_KEYWORDS = {
 
 def is_identifier(token: str) -> bool:
     """Check if token is a valid C identifier and not a literal/keyword."""
-    if not token.isidentifier():
+    if not token or not token[0].isalpha() and token[0] != '_':
         return False
-    if token in C_KEYWORDS:
-        raise ValueError(f"Error: '{token}' is a reserved C keyword and cannot be used as a variable")
+    for char in token[1:]:
+        if not char.isalnum() and char != '_':
+            return False
     return True
+
+def safe_var_name(var: str) -> str:
+    """Convert variable name to a safe C identifier by prefixing if it's a keyword."""
+    if var in C_KEYWORDS:
+        return f'z_{var}'
+    return var
 
 
 def parse_z_file(z_file):
@@ -70,10 +78,41 @@ def parse_z_file(z_file):
             continue
 
         # Process instruction
-        tokens = line.split()
+        # First, handle any string literals that might contain spaces
+        in_string = False
+        current_token = ""
+        tokens = []
+        
+        i = 0
+        while i < len(line):
+            if line[i] == '"':
+                in_string = not in_string
+                current_token += '"'
+                i += 1
+                if not in_string:  # End of string literal
+                    tokens.append(current_token)
+                    current_token = ""
+                continue
+                
+            if in_string:
+                current_token += line[i]
+            elif not line[i].isspace():
+                if line[i] == ';':  # Handle comments after instruction
+                    break
+                current_token += line[i]
+            else:
+                if current_token:  # End of a token
+                    tokens.append(current_token)
+                    current_token = ""
+            i += 1
+            
+        # Add the last token if there is one
+        if current_token:
+            tokens.append(current_token)
+            
         if not tokens:
             continue
-
+            
         op = tokens[0].upper()
         operands = tokens[1:]
 
@@ -81,7 +120,7 @@ def parse_z_file(z_file):
         instructions.append((op, operands))
         for operand in operands:
             if is_identifier(operand) and operand not in labels:
-                variables.add(operand)
+                variables.add(safe_var_name(operand))
 
     return instructions, variables, labels
 
@@ -89,54 +128,125 @@ def parse_z_file(z_file):
 def generate_c_code(instructions, variables, labels):
     """Generate C code from parsed instructions."""
     output = StringIO()
-    output.write("#include <stdio.h>\n#include <stdbool.h>\n#include <string.h>\n#include <math.h>\n\n")
+    indent = '    '  # 4 spaces for indentation
+    
+    output.write("#include <stdio.h>\n#include <stdbool.h>\n#include <string.h>\n#include <math.h>\n\n// Use fmod for floating-point modulo\n#define MOD(a, b) fmod((a), (b))\n\n")
 
     # Global variables
     if variables:
         output.write("// Global variables\n")
         for var in variables:
-            output.write(f"double {var} = 0;\n")
+            safe_var = safe_var_name(var)
+            output.write(f"double {safe_var} = 0;\n")
 
     # Check if we need cmp_flag (if there are any CMP, JZ, or JNZ instructions)
     needs_cmp = any(instr in {'CMP', 'JZ', 'JNZ'} for instr, _ in instructions)
     output.write("int main(){\n")
     if needs_cmp:
-        output.write("    int cmp_flag=0;\n")
+        output.write(f"{indent}int cmp_flag=0;\n")
 
     for instr, operands in instructions:
         if instr.endswith(":"):
             output.write(f"{instr}\n")
         elif instr == "MOV":
-            output.write(f"    {operands[0]} = {operands[1]};\n")
+            output.write(f"{indent}{operands[0]} = {operands[1]};\n")
         elif instr == "ADD":
-            output.write(f"    {operands[0]} += {operands[1]};\n")
+            if len(operands) == 2:
+                output.write(f"{indent}{operands[0]} += {operands[1]};\n")
+            elif len(operands) == 3:  # Three operands: ADD dest, src1, src2
+                output.write(f"{indent}{operands[0]} = {operands[1]} + {operands[2]};\n")
+            else:
+                raise ValueError(f"ADD instruction requires 2 or 3 operands, got {len(operands)}")
         elif instr == "SUB":
-            output.write(f"    {operands[0]} -= {operands[1]};\n")
+            if len(operands) == 2:
+                output.write(f"{indent}{operands[0]} -= {operands[1]};\n")
+            elif len(operands) == 3:  # Three operands: SUB dest, src1, src2
+                output.write(f"{indent}{operands[0]} = {operands[1]} - {operands[2]};\n")
+            else:
+                raise ValueError(f"SUB instruction requires 2 or 3 operands, got {len(operands)}")
         elif instr == "MUL":
-            output.write(f"    {operands[0]} *= {operands[1]};\n")
+            if len(operands) == 2:
+                output.write(f"{indent}{operands[0]} *= {operands[1]};\n")
+            elif len(operands) == 3:  # Three operands: MUL dest, src1, src2
+                output.write(f"{indent}{operands[0]} = {operands[1]} * {operands[2]};\n")
+            else:
+                raise ValueError(f"MUL instruction requires 2 or 3 operands, got {len(operands)}")
         elif instr == "DIV":
-            output.write(f"    {operands[0]} /= {operands[1]};\n")
+            if len(operands) == 2:
+                output.write(f"{indent}{operands[0]} /= {operands[1]};\n")
+            elif len(operands) == 3:  # Three operands: DIV dest, src1, src2
+                output.write(f"{indent}{operands[0]} = {operands[1]} / {operands[2]};\n")
+            else:
+                raise ValueError(f"DIV instruction requires 2 or 3 operands, got {len(operands)}")
+        elif instr == "MOD":
+            if len(operands) == 2:
+                output.write(f"{indent}{operands[0]} = MOD({operands[0]}, {operands[1]});\n")
+            elif len(operands) == 3:  # Three operands: MOD dest, src1, src2
+                output.write(f"{indent}{operands[0]} = MOD({operands[1]}, {operands[2]});\n")
+            else:
+                raise ValueError(f"MOD instruction requires 2 or 3 operands, got {len(operands)}")
+        elif instr == "INC":
+            output.write(f"{indent}{operands[0]}++;\n")
+        elif instr == "DEC":
+            output.write(f"{indent}{operands[0]}--;\n")
+        elif instr == "AND":
+            output.write(f"{indent}if (({operands[0]}) && ({operands[1]})) {{ \
+                {indent}    /* AND operation */ \
+                {indent}}}\n")
+        elif instr == "OR":
+            output.write(f"{indent}if (({operands[0]}) || ({operands[1]})) {{ \
+                {indent}    /* OR operation */ \
+                {indent}}}\n")
+        elif instr == "NOT":
+            output.write(f"{indent}if (!({operands[0]})) {{ \
+                {indent}    /* NOT operation */ \
+                {indent}}}\n")
         elif instr == "PRINT":
-            output.write(f'    printf("%g\\n", {operands[0]});\n')
+            if not operands:
+                raise ValueError("PRINT requires at least one operand")
+                
+            # Check if it's a string literal (starts and ends with quotes)
+            if len(operands) == 1 and operands[0].startswith('"') and operands[0].endswith('"'):
+                # It's a string literal - remove the quotes and escape special characters
+                str_content = operands[0][1:-1]  # Remove surrounding quotes
+                # Escape backslashes and quotes
+                escaped_str = str_content.replace('\\', '\\\\').replace('"', '\\"')
+                output.write(f'{indent}printf(\"{escaped_str}\\n\");\n')
+            else:
+                # It's a variable or expression - print as number
+                output.write(f'{indent}printf(\"%g\\n\", (double)({operands[0]}));\n')
+                
+        # For backward compatibility, PRINTSTR is the same as PRINT
         elif instr == "PRINTSTR":
-            escaped_str = ' '.join(operands).replace('\\', '\\\\').replace('"', '\\"')
-            output.write(f'    printf("{escaped_str}\\n");')
+            if not operands:
+                raise ValueError("PRINTSTR requires at least one operand")
+                
+            # Check if it's a string literal (starts and ends with quotes)
+            if len(operands) == 1 and operands[0].startswith('"') and operands[0].endswith('"'):
+                # It's a string literal - remove the quotes and escape special characters
+                str_content = operands[0][1:-1]  # Remove surrounding quotes
+                # Escape backslashes and quotes
+                escaped_str = str_content.replace('\\', '\\\\').replace('"', '\\"')
+                output.write(f'{indent}printf(\"{escaped_str}\\n\");\n')
+            else:
+                # It's a variable or expression - print as string
+                output.write(f'{indent}printf(\"%s\\n\", (char*){operands[0]});\n')
         elif instr == "CMP":
             if len(operands) != 3:
                 raise ValueError("CMP requires three operands: CMP x y op")
             left, right, op = operands
             if op == "==":
-                output.write(f"    cmp_flag = ({left} == {right});\n")
+                output.write(f"{indent}cmp_flag = ({left} == {right});\n")
             elif op == "!=":
-             output.write(f"    cmp_flag = ({left} != {right});\n")
+                output.write(f"{indent}cmp_flag = ({left} != {right});\n")
             elif op == "<":
-              output.write(f"    cmp_flag = ({left} < {right});\n")
+                output.write(f"{indent}cmp_flag = ({left} < {right});\n")
             elif op == ">":
-              output.write(f"    cmp_flag = ({left} > {right});\n")
+                output.write(f"{indent}cmp_flag = ({left} > {right});\n")
             elif op == "<=":
-             output.write(f"    cmp_flag = ({left} <= {right});\n")
+                output.write(f"{indent}cmp_flag = ({left} <= {right});\n")
             elif op == ">=":
-                output.write(f"    cmp_flag = ({left} >= {right});\n")
+                output.write(f"{indent}cmp_flag = ({left} >= {right});\n")
             else:
                 raise ValueError(f"Unknown comparison operator: {op}")
 
@@ -148,6 +258,26 @@ def generate_c_code(instructions, variables, labels):
             output.write(f'    if (cmp_flag != 0) goto {operands[0]};\n')
         elif instr == "HALT":
             output.write("    return 0;\n")
+        elif instr == "READ":
+            if len(operands) == 1:
+                # Form: READ var
+                var = operands[0]
+                output.write(f'    scanf("%lf", &{var});\n')
+            elif len(operands) >= 2:
+                # Form: READ "prompt" var
+                prompt = " ".join(operands[:-1])
+                var = operands[-1]
+
+            if prompt.startswith('"') and prompt.endswith('"'):
+                prompt = prompt[1:-1]
+
+                escaped_prompt = prompt.replace('\\', '\\\\').replace('"', '\\"')
+
+                output.write(f'    printf("{escaped_prompt}");\n')
+                output.write(f'    scanf("%lf", &{var});\n')
+            else:
+                raise ValueError("READ requires at least one operand (variable), or a prompt and variable")
+
         else:
             raise ValueError(f"Unknown OPCODE: {instr}")
 
@@ -161,29 +291,19 @@ def generate_c_code(instructions, variables, labels):
 
 
 def compile_to_exe(c_code, output_file):
-    """Compile C code to an executable using gcc with optimizations."""
+    """Compile C code to an executable using gcc."""
     # Create a temporary C file
     c_file = output_file.rsplit('.', 1)[0] + '.c'
     try:
         with open(c_file, 'w') as f:
             f.write(c_code)
 
-        # Optimized compilation flags:
-        # -O3: Maximum optimization
-        # -s: Strip all symbols
-        # -static: Static linking for better performance
-        # -march=native: Optimize for the current CPU
-        # -flto: Link-time optimization
-        # -Wall -Wextra: Enable all warnings
-        # -Werror: Treat warnings as errors
+        # Basic compilation command with math library
         compile_cmd = [
             'gcc',
             '-o', output_file,
             c_file,  # Add the source file to compile
-            '-O3', '-s', '-static',
-            '-march=native',
-            '-flto',
-            '-Wall', '-Wextra', '-Werror'
+            '-lm'    # Link with math library for fmod
         ]
 
         # Run the compilation
