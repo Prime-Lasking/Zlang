@@ -9,12 +9,14 @@ A simple compiler that translates Z language source code into C or directly into
 - [Installation](#installation)
 - [Usage](#usage)
 - [Language Reference](#language-reference)
+  - [Syntax](#syntax)
   - [Variables](#variables)
   - [Instructions](#instructions)
     - [Data Movement](#data-movement)
     - [Arithmetic](#arithmetic)
     - [Control Flow](#control-flow)
     - [I/O Operations](#io-operations)
+  - [Functions](#functions)
   - [Labels](#labels)
   - [Comments](#comments)
 - [Example Programs](#example-programs)
@@ -22,19 +24,20 @@ A simple compiler that translates Z language source code into C or directly into
 - [Performance](#performance)
 - [License](#license)
 
-# Z
 ## Introduction
 
-Z is a simple, assembly-like programming language designed for educational purposes and lightweight scripting. It features a minimalistic syntax and a small set of instructions that compile to efficient C code, Z is a much slower than C or Rust but is 4x faster than Python and a bit faster than javascript.
+Z is a simple, assembly-like programming language designed for educational purposes and lightweight scripting. It features a minimalistic syntax and a small set of instructions that compile to efficient C code.
 
 ## Features
 
-- **Simple Syntax**: Easy-to-learn assembly-like language
+- **Simple Syntax**: Easy-to-learn assembly-like language with flexible operand formatting
 - **Fast Compilation**: Optimized for quick compilation times
 - **Multiple Output Formats**: Generate C code or directly compile to executable
 - **Cross-Platform**: Works on any platform with Python and GCC installed
-- **Rich Instruction Set**: Supports arithmetic, control flow, and I/O operations
+- **Rich Instruction Set**: Supports arithmetic, control flow, I/O operations, and functions
 - **Efficient Code Generation**: Produces optimized C code
+- **Function Support**: Define and call functions with parameters and return values
+- **Flexible Syntax**: Supports both comma and space-separated operands
 
 ## Requirements
 
@@ -84,8 +87,22 @@ python Compiler.py [options] <input.z>
 
 Z programs are text files with a `.z` extension. Each line contains either:
 - An instruction with optional operands
+- A function definition
 - A label definition
 - A comment
+
+### Operand Formatting
+
+Z supports flexible operand formatting:
+- **Comma-separated**: `MOV x, 10` or `ADD a, b, result`
+- **Space-separated**: `MOV x 10` or `ADD a b result`
+- **Mixed**: You can use commas for clarity in complex expressions
+
+### Semicolons
+
+- **Inside functions**: Semicolons are **required** at the end of each statement
+- **Outside functions**: Semicolons are **optional**
+- Inline comments can follow semicolons: `MOV x, 10; // Set x to 10`
 
 ## Variables
 
@@ -108,14 +125,14 @@ MOV y, x       ; y = x
 
 ### Arithmetic
 
-#### `ADD dest, src1, src2?`
+#### `ADD dest, src` or `ADD src1, src2, dest`
 Adds values and stores the result. Can be used in two forms:
-- Two operands: `dest += src1`
-- Three operands: `dest = src1 + src2`
+- Two operands: `dest += src` (adds src to dest)
+- Three operands: `dest = src1 + src2` (adds src1 and src2, stores in dest)
 
 ```
 ADD x, 5        ; x = x + 5
-ADD y, x, 3     ; y = x + 3
+ADD a, b, y     ; y = a + b
 ```
 
 #### `SUB dest, src1, src2?`
@@ -239,47 +256,151 @@ start_loop:
     JMP start_loop
 ```
 
+## Functions
+
+Z now supports real functions that compile to C functions with proper parameters and return values.
+
+### Function Definition
+
+```
+FN function_name(param1, param2, ...):
+    // Function body (semicolons required)
+    instruction1;
+    instruction2;
+    RET return_value;
+END
+```
+
+**Example:**
+```
+FN add(a, b):
+    ADD a, b, result;
+    RET result;
+END
+```
+
+This compiles to:
+```c
+double add(double a, double b) {
+    result = a + b;
+    return result;
+}
+```
+
+### Function Calls
+
+#### Without Return Value
+```
+CALL function_name(arg1, arg2, ...)
+```
+
+#### With Return Value
+```
+CALL function_name(arg1, arg2, ...), result_var
+```
+
+**Examples:**
+```
+CALL print_hello()                    // Call with no args
+CALL add(x, y), sum                   // Call with return value
+CALL calculate(a, b, c), result       // Multiple arguments
+```
+
+### Return Statement
+
+```
+RET value;      // Return a value
+RET;            // Return without a value
+```
+
+**Note:** Return statements must end with a semicolon inside functions.
+
 ## Comments
 
-- Start with a semicolon `;`
+- Start with `//` for inline comments
 - Extend to the end of the line
 - Can appear on their own line or after an instruction
 
 ```
-; This is a comment
-MOV x, 10  ; Initialize x to 10
+// This is a comment
+MOV x, 10            // Initialize x to 10
+ADD a, b, result;    // Inside function (semicolon required)
 ```
 
 ## Example Programs
 
+### Function Example: Add Two Numbers
+
+```
+// Function to add two numbers
+FN add(a, b):
+    ADD a, b, result;  // Add a and b, store in result
+    RET result;         // Return the result
+END
+
+// Main program
+MOV x, 10            // Set x to 10
+MOV y, 20           // Set y to 20
+
+// Call the add function and store result
+CALL add(x, y), sum
+PRINT sum           // Prints: 30
+HALT
+```
+
+### Factorial Function
+
+```
+// Calculate factorial recursively
+FN factorial(n):
+    CMP n, 1, <=
+    JZ base_case
+    
+    SUB n, 1, temp;
+    CALL factorial(temp), result;
+    MUL n, result, final;
+    RET final;
+    
+base_case:
+    MOV result, 1;
+    RET result;
+END
+
+// Main program
+MOV num, 5
+CALL factorial(num), answer
+PRINT answer        // Prints: 120
+HALT
+```
+
 ### Prime Number Checker
 
 ```
-; Check if a number is prime
-MOV number, 7919    ; Number to check
-MOV is_prime, 1     ; Assume prime initially
-MOV i, 2            ; Start divisor from 2
+// Check if a number is prime
+MOV number, 7919    // Number to check
+MOV is_prime, 1     // Assume prime initially
+MOV i, 2            // Start divisor from 2
 
-; Special cases
-CMP number, 2, <    ; If number < 2
+// Special cases
+CMP number, 2, <    // If number < 2
 JZ not_prime
-CMP number, 2, ==   ; If number == 2
+CMP number, 2, ==   // If number == 2
 JZ is_prime_number
 
 check_loop:
-    ; Check if i > sqrt(number)
+    // Check if i > sqrt(number)
     MOV temp, i
     MUL temp, temp
     CMP temp, number, >
     JZ is_prime_number
     
-    ; Check if number is divisible by i
+    // Check if number is divisible by i
     MOV temp, number
     MOD temp, i
     CMP temp, 0, ==
     JZ not_prime
     
-    ; Next divisor
+    // Next divisor
     ADD i, 1
     JMP check_loop
 
@@ -345,13 +466,16 @@ HALT
 ## Best Practices
 
 1. **Variable Naming**: Use descriptive names for variables and labels (e.g., `counter` instead of `c`)
-2. **Comments**: Document complex logic and the purpose of variables
-3. **Whitespace**: Use consistent indentation (4 spaces recommended)
+2. **Comments**: Document complex logic and the purpose of variables using `//`
+3. **Whitespace**: Use consistent indentation (2-4 spaces recommended, especially inside functions)
 4. **Labels**: Use meaningful names for labels (e.g., `process_data` instead of `l1`)
-5. **Error Handling**: Check for division by zero and other edge cases
-6. **Testing**: Test edge cases, especially with arithmetic operations
-7. **Performance**: For critical loops, minimize instructions inside the loop
-8. **Readability**: Place related instructions together with blank lines between logical sections
+5. **Functions**: Break complex logic into reusable functions
+6. **Semicolons**: Always use semicolons inside functions; they're optional outside
+7. **Operand Formatting**: Use commas for clarity in multi-operand instructions
+8. **Error Handling**: Check for division by zero and other edge cases
+9. **Testing**: Test edge cases, especially with arithmetic operations and function calls
+10. **Performance**: For critical loops, minimize instructions inside the loop
+11. **Readability**: Place related instructions together with blank lines between logical sections
 
 ## Performance
 
@@ -365,11 +489,12 @@ Times are automatically displayed in the most appropriate unit (s, ms, μs, or n
 
 ## Limitations
 
-- No support for functions or procedures
 - No arrays or complex data structures
 - No string manipulation beyond printing literals
-- All variables are global
+- Function parameters and local variables share the global namespace
 - Limited error reporting during compilation
+- No nested function definitions
+- No function overloading
 
 ## License
 
