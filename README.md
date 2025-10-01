@@ -26,7 +26,7 @@ A simple compiler that translates Z language source code into C or directly into
 
 ## Introduction
 
-Z is a simple, assembly-like programming language designed for educational purposes and lightweight scripting. It features a minimalistic syntax and a small set of instructions that compile to efficient C code.
+Z is a simple, assembly-like programming language designed for Simplicity with blaszing fast speed. It features a minimalistic syntax and a small set of instructions that compile to efficient C code.
 
 ## Features
 
