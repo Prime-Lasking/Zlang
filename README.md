@@ -1,8 +1,8 @@
 # Z Compiler
 
-🚀 A minimalist, blazingly fast, cross-platform compiler for the Z programming language.
+🚀 A self-contained, cross-platform compiler for the Z programming language.
 
-**Single File Distribution** • **Integrated Installation** • **No Dependencies**
+**Single File Distribution** • **Integrated Installation** • **No Dependencies** • **Enhanced Robustness**
 
 ---
 
@@ -11,13 +11,15 @@
 ### For Users
 
 1. **Get `z.exe`** (single file - no installation needed)
-2. **Setup**: `z.exe -begin` (adds to PATH automatically)
-3. **Compile**: `z program.z -f exe` (creates program.exe)
+2. **Setup**: `z.exe -begin` or `z.exe -setup` (installs current z.exe and adds to PATH)
+3. **Compile**: `z program.z` (creates program.exe)
 4. **Update**: `z -update` (gets the latest release and replaces the installed `z.exe`)
 
 ```bash
 # Download z.exe, then:
-z.exe -begin          # One-time setup
+z.exe -begin          # One-time setup (installs current z.exe)
+z.exe -setup          # Same as -begin
+z -v                  # Check version
 z hello.z             # Compile to hello.exe
 z program.z -f c      # Generate C source
 z -update             # Update to latest release
@@ -45,10 +47,13 @@ z test.z
 - ✅ **No additional files needed**
 - ✅ **Works offline**
 
-**What `z -begin` does:**
-- **Windows**: Installs to `%LOCALAPPDATA%\Programs\Z_Compiler` + adds to PATH via registry
-- **Linux/macOS**: Installs to `~/.local/bin` + configures shell profiles
-- **All platforms**: Automatic duplicate detection and PATH management
+**What `z -begin` and `z -setup` do:**
+- **Windows**: Installs current z.exe to `%ProgramFiles%\Z\bin` (or `%LOCALAPPDATA%\Programs\Z\bin` if no admin rights)
+- **System-wide PATH first**: Tries to update system PATH; falls back to user PATH if needed
+- **Smart replacement**: Finds other z.exe files on PATH and prompts to replace them
+- **PATH deduplication**: Ensures no duplicate entries while putting new install first
+- **Linux/macOS**: Not implemented in v0.8 (Windows-first release)
+- **⚠ Note**: PATH changes require opening a new terminal to take effect
 
 **What `z -update` does:**
 - Downloads the latest release from GitHub and replaces the existing `z.exe` found in PATH (backs up the old file as `.bak` when possible).
@@ -76,8 +81,10 @@ z program.z -c clang           # Use Clang (default)
 ### Setup & Update Commands
 
 ```bash
-z -begin         # Install Z compiler to PATH
-z -setup         # Alias for -begin
+z -begin         # Install current Z compiler to PATH
+z -setup         # Same as -begin
+z -v             # Show version
+z --version      # Show version
 z -update | -u   # Update installed Z to latest release
 z --help         # Show help
 ```
@@ -94,18 +101,29 @@ z --help         # Show help
 - ✅ **Automatic C compiler detection**
 - ✅ **Built-in updater** (`z -update`)
 
-### 🛡️ Safeguards
-- ✅ **Duplicate installation prevention**
-- ✅ **PATH conflict detection**
-- ✅ **Setup requirement warnings**
-- ✅ **Graceful error handling**
-- ✅ **Repository vs installed detection**
+### 🛡️ Enhanced Robustness & Security
+- ✅ **File size limits** (50MB max) to prevent memory exhaustion
+- ✅ **Path traversal protection** for input/output files
+- ✅ **Memory leak prevention** with proper cleanup on failures
+- ✅ **Race condition fixes** in update mechanism with retry logic
+- ✅ **Input validation** for all file operations
+- ✅ **UTF-8 encoding enforcement** for source files
 
 ### 🎨 User Experience
-- ✅ **Colored terminal output**
+- ✅ **Colored terminal output** (Windows-compatible)
 - ✅ **Clear progress indicators**
-- ✅ **Helpful error messages**
+- ✅ **Helpful error messages with file/line context**
 - ✅ **Performance timing reports**
+- ✅ **Comprehensive error codes** for better debugging
+
+### 🔒 Error Handling & Validation
+- ✅ **Variable redeclaration detection** prevents naming conflicts
+- ✅ **Division by zero detection** in compile-time constants
+- ✅ **Unknown opcode validation** prevents invalid instructions
+- ✅ **Mixed indentation handling** (tabs vs spaces)
+- ✅ **Type consistency** for global variables
+- ✅ **Logical operator translation** (AND, OR, NOT → &&, ||, !)
+- ✅ **Discard variable handling** in function calls
 
 ---
 
@@ -118,26 +136,24 @@ Z provides a straightforward way to write procedural programs with explicit inst
 **Input (`example.z`)**
 ```z
 FN main():
-    // Immutable by default
-    MOV int x 10
-    // Mutable variable  
-    MOV mut int y 20
-    ADD x y result
-    PRINT result
+    // Enhanced READ with type and prompt
+    READ int "Enter your age: " age
+    READ double "Enter your height: " height
     
-    FOR i 1..5:
-        MUL i 2 doubled
-        PRINT doubled
+    // Increment and decrement operations
+    INC age
+    DEC height
+    
+    PRINT age
+    PRINT height
 ```
 
 **Output (`example.exe`)**
 ```
-30
-2
-4
-6
-8
-10
+Enter your age: 25
+Enter your height: 175.5
+26
+174.5
 ```
 
 ---
@@ -149,6 +165,7 @@ FN main():
 - **Immutable by default**: `MOV int x 10` (immutable)
 - **Mutable variables**: `MOV mut int y 20` (mutable)
 - **Dynamic typing**: Variables default to `double` if no type specified
+- **Redeclaration protection**: Prevents accidental variable redeclaration
 
 ### Arithmetic Operations
 - `ADD a b result` - Addition
@@ -156,8 +173,8 @@ FN main():
 - `MUL a b result` - Multiplication
 - `DIV a b result` - Division
 - `MOD a b result` - Modulo
-- `INC variable` - Increment
-- `DEC variable` - Decrement
+- `INC variable` - Increment variable by 1
+- `DEC variable` - Decrement variable by 1
 
 ### Control Flow
 
@@ -199,8 +216,14 @@ FOR variable start..end:
 ### I/O Operations
 - `PRINT value` - Print a number
 - `PRINTSTR "text"` - Print a string
-- `READ variable` - Read input from user
+- `READ variable` - Read input (backward compatibility)
+- `READ <type> <prompt> <variable>` - Read with type and prompt (e.g., `READ int "Enter age: " age`)
 - `ERROR "message"` - Print error and exit
+
+### Enhanced Features
+- **Logical operators**: `AND`, `OR`, `NOT` properly translated to C (`&&`, `||`, `!`)
+- **Discard variables**: `CALL func() _` discards return value
+- **Compile-time constants**: Division by zero and other errors caught at compile time
 
 ---
 
@@ -225,6 +248,12 @@ MOV 15 y
 ADD x y result
 ```
 
+### Robustness Improvements
+- **File size validation** prevents memory exhaustion attacks
+- **Path traversal protection** prevents accessing files outside intended directories
+- **Memory cleanup** ensures temporary files are removed even on failures
+- **Race condition fixes** in update mechanism with robust retry logic
+
 ---
 
 ## 🧩 Architecture
@@ -236,15 +265,21 @@ ADD x y result
 | `main.py` | Entry point and CLI (parsing, compilation, compiler discovery) |
 | `setup_update.py` | Setup (PATH install), PATH detection, and updater (`z -update`) |
 | `lexer.py` | Tokenizes `.z` source into structured instructions |
-| `optimizer.py` | Optimizes instruction set |
-| `codegen.py` | Converts optimized code to C |
-| `errors.py` | Structured compiler error handling |
+| `optimizer.py` | Optimizes instruction set with constant folding |
+| `codegen.py` | Converts optimized code to C with type tracking |
+| `errors.py` | Structured compiler error handling with codes |
 | `semantics.py` | Semantic analysis and validation |
 
 ### Compilation Pipeline
 ```
 .z source → lexer → optimizer → codegen → C code → [optional] C compiler → executable
 ```
+
+### Enhanced Error Handling
+- **File/line context** in all error messages
+- **Error codes** for programmatic error handling
+- **Path validation** for security
+- **Memory-safe operations** throughout
 
 ---
 
@@ -277,5 +312,13 @@ Total time:    1.5 s
 Output:        hello.exe
 Size:          165.5 KB
 ```
+
+### Recent Improvements
+- **Enhanced security** with path traversal protection
+- **Better error messages** with file/line context
+- **Memory leak fixes** with proper cleanup
+- **Race condition fixes** in update mechanism
+- **Buffer overflow protection** with file size limits
+- **Improved variable handling** with redeclaration detection
 
 Enjoy building with Z! 🚀
