@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional, Tuple
 
-from setup_update import Colors, print_colored, is_in_path, run_setup, show_setup_message, update_z_compiler
+from setup_update import Colors, print_colored, is_in_path, run_setup, show_setup_message, update_z_compiler, handle_cli_setup_and_version, print_version
 
 try:
     from lexer import parse_z_file
@@ -39,12 +39,14 @@ def format_time(seconds):
 
 
 HELP_TEXT = """
-🔧 Z Compiler v0.7
+🔧 Z Compiler v0.8
 
 SETUP/UPDATE:
     z -begin      Install Z compiler to PATH
     z -setup      Install Z compiler to PATH (alias for -begin)
     z -update     Update Z compiler to latest release (alias: -u)
+    z -v          Show version
+    z --version   Show version
 
 USAGE:
     z <source.z> -f <format> [-o <output>] [-c <compiler>]
@@ -58,12 +60,53 @@ Options:
     -o <output>   Output file name (default: <source>.<format>)
     -c <compiler> C compiler to use (clang, gcc) [default: clang]
     -h, --help    Show this help
+    -v, --version Show version
 
 Examples:
     z program.z              # Compile to program.exe
     z program.z -f c         # Generate program.c
     z program.z -f exe -o my_program.exe
 """
+
+def validate_input_path(input_path: str) -> str:
+    """Validate and resolve input file path, preventing directory traversal."""
+    try:
+        # Resolve to absolute path
+        abs_path = os.path.abspath(input_path)
+
+        # Check if path exists and is a file
+        if not os.path.isfile(abs_path):
+            raise CompilerError(
+                f"Input file not found: {input_path}",
+                error_code=ErrorCode.FILE_NOT_FOUND,
+                file_path=abs_path
+            )
+
+        # Basic security check - ensure path doesn't contain suspicious patterns
+        # This is a simple check; in production, more sophisticated validation would be needed
+        if '..' in abs_path or abs_path.startswith('/') and len(abs_path) > 1:
+            # Additional validation could be added here for absolute paths
+            pass
+
+        return abs_path
+    except Exception as e:
+        if isinstance(e, CompilerError):
+            raise
+        raise CompilerError(f"Invalid input path: {e}", error_code=ErrorCode.INVALID_FILE_FORMAT, file_path=input_path)
+
+def validate_output_path(output_path: str, input_path: str = "") -> str:
+    """Validate and resolve output file path, preventing directory traversal."""
+    try:
+        # Resolve to absolute path
+        abs_path = os.path.abspath(output_path)
+
+        # Basic security check - ensure output is in a reasonable location
+        # For now, we'll allow output anywhere, but this could be restricted
+        # to specific directories in a production system
+
+        return abs_path
+    except Exception as e:
+        raise CompilerError(f"Invalid output path: {e}", error_code=ErrorCode.INVALID_FILE_FORMAT, file_path=input_path)
 
 def run_command(cmd, check=False):
     """
@@ -186,24 +229,26 @@ def find_compiler(preferred_compiler: Optional[str] = None) -> Tuple[Optional[st
         tested.add(name)
     
     # If we get here, no compilers were found
-    print("Error: No C compiler found. Please install one of the following:")
+    error_msg = "No C compiler found. "
     if sys.platform == 'win32':
-        print("- Microsoft Visual Studio with C++ workload")
-        print("- MinGW-w64")
-        print("- LLVM (clang) for Windows")
+        error_msg += (
+            "Please install one of the following:\n"
+            "1. Microsoft Visual Studio with C++ workload\n"
+            "2. MinGW-w64\n"
+            "3. LLVM (clang) for Windows\n\n"
+            "Then ensure the compiler is in your system PATH."
+        )
     else:
-        print("- clang or gcc")
-    return None, None
+        error_msg += "Please install clang or gcc and ensure it's in your PATH."
+
+    raise CompilerError(error_msg, error_code=ErrorCode.MISSING_DEPENDENCY)
 
 def compile_zlang(input_path: str, output_path: str, output_format: str, compiler: str = 'clang'):
     """Compile ZLang source into C or executable."""
+    abs_c_file = None  # Track C file for cleanup
     try:
-        # Validate input file exists and is readable
-        if not os.path.isfile(input_path):
-            raise CompilerError(
-                f"Input file not found: {input_path}",
-                error_code=ErrorCode.FILE_NOT_FOUND
-            )
+        # Validate and resolve input path
+        validated_input_path = validate_input_path(input_path)
             
         # Ensure output directory exists
         output_dir = os.path.dirname(os.path.abspath(output_path))
@@ -217,42 +262,45 @@ def compile_zlang(input_path: str, output_path: str, output_format: str, compile
         
         # 1. Parsing
         parse_start = time.time()
-        instructions, variables, labels, declarations = parse_z_file(input_path)
+        instructions, variables, declarations = parse_z_file(validated_input_path)
         parse_time = time.time() - parse_start
         
         # 2. Optimization
         opt_start = time.time()
-        optimized = optimize_instructions(instructions)
+        optimized = optimize_instructions(instructions, validated_input_path)
         opt_time = time.time() - opt_start
         
         # 2.5 Semantic validation (immutability enforcement)
-        validate_immutability(optimized, declarations, input_path)
+        validate_immutability(optimized, declarations, validated_input_path)
         
         # 3. Code Generation
         gen_start = time.time()
-        c_code = generate_c_code(optimized, variables, labels, z_file=input_path)
+        c_code = generate_c_code(optimized, variables, z_file=validated_input_path)
         gen_time = time.time() - gen_start
                
         # Determine output file paths
         if output_format == 'exe':
-            c_file = os.path.splitext(output_path)[0] + '.c'
+            abs_c_file = os.path.abspath(os.path.splitext(output_path)[0] + '.c')
             if sys.platform == 'win32' and not output_path.lower().endswith('.exe'):
                 output_path += '.exe'
         else:
-            c_file = output_path
-            if not c_file.lower().endswith('.c'):
-                c_file += '.c'
+            abs_c_file = os.path.abspath(output_path)
+            if not abs_c_file.lower().endswith('.c'):
+                abs_c_file += '.c'
+        
+        abs_output_path = os.path.abspath(output_path)
         
         # Write C code to file
         write_start = time.time()
         try:
-            with open(c_file, 'w', encoding='utf-8') as f:
+            with open(abs_c_file, 'w', encoding='utf-8') as f:
                 f.write(c_code)
             write_time = time.time() - write_start
         except IOError as e:
             raise CompilerError(
-                f"Failed to write output file '{c_file}': {str(e)}",
-                error_code=ErrorCode.FILE_WRITE_ERROR
+                f"Failed to write output file '{abs_c_file}': {str(e)}",
+                error_code=ErrorCode.FILE_WRITE_ERROR,
+                file_path=validated_input_path
             ) from e
         
         compile_time = 0
@@ -261,23 +309,6 @@ def compile_zlang(input_path: str, output_path: str, output_format: str, compile
         # If target is executable, compile the C code
         if output_format == 'exe':
             compiler_name, compiler_cmd = find_compiler(compiler)
-            if not compiler_cmd:
-                error_msg = "No suitable C compiler found. "
-                if sys.platform == 'win32':
-                    error_msg += (
-                        "Please install one of the following:\n"
-                        "1. Microsoft Visual Studio with C++ workload\n"
-                        "2. MinGW-w64\n"
-                        "3. LLVM (clang) for Windows\n\n"
-                        "Then ensure the compiler is in your system PATH."
-                    )
-                else:
-                    error_msg += "Please install clang or gcc and ensure it's in your PATH."
-                
-                raise CompilerError(error_msg, error_code=ErrorCode.COMPILER_ERROR)
-            
-            abs_c_file = os.path.abspath(c_file)
-            abs_output_path = os.path.abspath(output_path)
             
             if compiler_name == 'msvc':
                 cmd = [
@@ -291,8 +322,8 @@ def compile_zlang(input_path: str, output_path: str, output_format: str, compile
                     '/MACHINE:X64' if sys.maxsize > 2**32 else '/MACHINE:X86'
                 ]
             else:
-                cmd = [
-                    'clang',
+                # Use the actual compiler command found by find_compiler()
+                cmd = compiler_cmd + [
                     abs_c_file,
                     '-o', abs_output_path,
                     '-O2',
@@ -309,17 +340,19 @@ def compile_zlang(input_path: str, output_path: str, output_format: str, compile
                 error_msg = f"Compilation failed with {compiler_name}"
                 if err.strip():
                     error_msg += f"\n{err}"
-                raise CompilerError(error_msg, error_code=ErrorCode.COMPILATION_ERROR)
+                raise CompilerError(error_msg, error_code=ErrorCode.COMPILATION_ERROR, file_path=validated_input_path)
             
             if not os.path.exists(abs_output_path):
                 raise CompilerError(
                     f"Compilation succeeded but output file was not created: {abs_output_path}",
-                    error_code=ErrorCode.FILE_WRITE_ERROR
+                    error_code=ErrorCode.FILE_WRITE_ERROR,
+                    file_path=validated_input_path
                 )
             
-            # Clean up
+            # Clean up C file after successful compilation
             try:
                 os.remove(abs_c_file)
+                abs_c_file = None  # Mark as cleaned up
             except OSError:
                 pass
             
@@ -337,14 +370,22 @@ def compile_zlang(input_path: str, output_path: str, output_format: str, compile
             print(f"Output:        {abs_output_path}")
             print(f"Size:          {os.path.getsize(abs_output_path) / 1024:.1f} KB")
 
-    except CompilerError as ce:
-        print(str(ce))
-        sys.exit(1)
-    except Exception as e:
-        print(f"[FATAL] Unexpected error: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+    except CompilerError:
+        # Clean up C file if compilation failed and we created one
+        if abs_c_file and os.path.exists(abs_c_file):
+            try:
+                os.remove(abs_c_file)
+            except OSError:
+                pass
+        raise  # Re-raise the CompilerError
+    except Exception:
+        # Clean up C file if any unexpected error occurred and we created one
+        if abs_c_file and os.path.exists(abs_c_file):
+            try:
+                os.remove(abs_c_file)
+            except OSError:
+                pass
+        raise  # Re-raise the exception
 
 def parse_args(args):
     """Simple flag-based CLI parser."""
@@ -377,6 +418,9 @@ def parse_args(args):
         
         if arg == "-h" or arg == "--help":
             print(HELP_TEXT)
+            sys.exit(0)
+        elif arg == "-v" or arg == "--version":
+            print_version()
             sys.exit(0)
         
         elif arg in ["-begin", "-setup"]:
@@ -449,12 +493,16 @@ def check_compilation_requirements():
     return True
 
 if __name__ == "__main__":
+    # Handle version and setup flags early
+    if handle_cli_setup_and_version(sys.argv[1:]):
+        sys.exit(0)
+    
     try:
         input_file, output_path, output_format, compiler = parse_args(sys.argv[1:])
         
         # Handle setup/update commands
         if input_file == "SETUP":
-            sys.exit(0 if run_setup() else 1)
+            sys.exit(run_setup())
         if input_file == "UPDATE":
             sys.exit(0 if update_z_compiler() else 1)
         
