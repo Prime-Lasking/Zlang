@@ -1,5 +1,6 @@
 """Lexical analysis for ZLang."""
 import re
+import os
 from typing import List, Tuple, Set, Dict, Optional
 from errors import CompilerError, ErrorCode
 
@@ -7,9 +8,8 @@ from errors import CompilerError, ErrorCode
 IDENTIFIER_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
 TOKEN_RE = re.compile(r'"[^"]*"|\S+')
 
-OPS = {"MOV", "ADD", "SUB", "MUL", "DIV", "PRINT",
-       "PRINTSTR", "HALT", "READ", "MOD", "INC", "DEC", "AND", "OR", "NOT",
-       "CALL", "RET", "END", "ERROR", "FN", "FNDEF", "FOR", "WHILE", "IF", "ELSE", "ELIF", "BREAK"}
+OPS = {"MOV", "ADD", "SUB", "MUL", "DIV", "PRINT", "READ", "MOD", "INC", "DEC", "CALL", "RET", "ERROR",
+       "FNDEF", "FN", "FOR", "WHILE", "IF", "ELSE", "ELIF", "PRINTSTR"}
 
 C_KEYWORDS = {
     "auto", "break", "case", "char", "const", "continue", "default",
@@ -29,18 +29,24 @@ def is_number(token: str) -> bool:
     except Exception:
         return False
 
-def parse_z_file(z_file: str) -> Tuple[list, set, set, Dict[Tuple[Optional[str], str], Dict[str, object]]]:
-    """Parse ZLang source file and return (instructions, variables, labels, declarations).
+def parse_z_file(z_file: str) -> Tuple[list, set, Dict[Tuple[Optional[str], str], Dict[str, object]]]:
+    """Parse ZLang source file and return (instructions, variables, declarations).
     declarations: map of (scope, var_name) -> { 'mutable': bool, 'line': int }
     scope is function name or None for global scope.
     """
     try:
-        with open(z_file, "r") as f:
+        with open(z_file, "r", encoding='utf-8') as f:
             lines = f.readlines()
+    except UnicodeDecodeError:
+        raise CompilerError(
+            f"File encoding error - only UTF-8 files are supported",
+            error_code=ErrorCode.INVALID_FILE_FORMAT,
+            file_path=z_file
+        )
     except IOError as e:
         raise CompilerError(f"Cannot read file: {e}", error_code=ErrorCode.IO_ERROR, file_path=z_file)
 
-    instructions, variables, labels = [], set(), set()
+    instructions, variables = [], set()
     indent_stack = [0]  # Track indentation levels
 
     # Track current function scope via FNDEF/INDENT/DEDENT events
@@ -51,9 +57,11 @@ def parse_z_file(z_file: str) -> Tuple[list, set, set, Dict[Tuple[Optional[str],
     declarations: Dict[Tuple[Optional[str], str], Dict[str, object]] = {}
     
     for line_num, raw in enumerate(lines, 1):
-        # Calculate indentation
+        # Calculate indentation - normalize tabs to spaces for consistent calculation
         line = raw.rstrip('\n')
-        indent = len(line) - len(line.lstrip())
+        # Replace tabs with spaces (4 spaces per tab, standard Python indentation)
+        normalized_line = line.replace('\t', '    ')
+        indent = len(normalized_line) - len(normalized_line.lstrip())
         line = line.strip()
         
         # Skip empty lines and comments
@@ -91,12 +99,15 @@ def parse_z_file(z_file: str) -> Tuple[list, set, set, Dict[Tuple[Optional[str],
             
         op = tokens[0].upper()
         operands = tokens[1:]
-        
-        # Handle labels (tokens ending with ':') before other parsing
-        if tokens[0].endswith(':'):
-            label_name = tokens[0][:-1]
-            instructions.append(("LABEL", [label_name], line_num))
-            continue
+
+        # Validate that the opcode is known
+        if op not in OPS:
+            raise CompilerError(
+                f"Unknown opcode '{op}'",
+                error_code=ErrorCode.SYNTAX_ERROR,
+                file_path=z_file,
+                line_num=line_num
+            )
 
         # Handle function definitions: FN name(params) [-> rettype]:
         if op == "FN":
@@ -239,4 +250,4 @@ def parse_z_file(z_file: str) -> Tuple[list, set, set, Dict[Tuple[Optional[str],
             if func_depth == 0:
                 current_function = None
 
-    return instructions, variables, labels, declarations
+    return instructions, variables, declarations
