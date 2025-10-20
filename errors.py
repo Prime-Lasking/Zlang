@@ -1,7 +1,6 @@
 """Error handling for the Z compiler (ZLang)."""
 from enum import Enum
 from typing import Optional
-
 class ErrorCode(Enum):
     """Error codes for different types of errors in the Z compiler."""
     # File and I/O related errors (1-10)
@@ -16,6 +15,8 @@ class ErrorCode(Enum):
     UNEXPECTED_TOKEN = 12
     MISSING_TOKEN = 13
     INVALID_SYNTAX = 14
+    UNKNOWN_OPCODE = 15
+    INVALID_CONDITION = 16
     
     # Semantic analysis errors (21-30)
     UNDEFINED_SYMBOL = 21
@@ -24,6 +25,8 @@ class ErrorCode(Enum):
     INVALID_OPERATION = 24
     INVALID_TYPE = 25
     INVALID_OPERAND = 26
+    TYPE_ERROR = 27
+    MISSING_RETURN = 28
     
     # Code generation errors (31-40)
     CODE_GEN_ERROR = 31
