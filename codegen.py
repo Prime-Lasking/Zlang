@@ -10,7 +10,7 @@ def format_parameters(params):
     formatted = []
     i = 0
     while i < len(params):
-        if i + 1 < len(params) and params[i] in ["int", "double", "float", "bool"]:
+        if i + 1 < len(params) and params[i] in ["int", "double", "float", "bool","string"]:
             param_type = params[i]
             param_name = IDENTIFIER_SANITIZE_RE.sub('_', params[i + 1])
             formatted.append(f"{param_type} {param_name}")
@@ -36,7 +36,31 @@ def sanitize_condition(cond):
     """Remove trailing colons from conditions like IF, WHILE."""
     return cond.rstrip(':')
 
-def generate_c_code(instructions, variables, labels, z_file="unknown.z"):
+def translate_logical_operators(condition):
+    """Translate Z logical operators to C logical operators."""
+    # Replace Z operators with C operators
+    condition = condition.replace(' AND ', ' && ')
+    condition = condition.replace(' OR ', ' || ')
+    condition = condition.replace(' NOT ', ' !')
+
+    # Handle cases where operators might be at the beginning or end
+    condition = condition.replace('AND ', '&& ')
+    condition = condition.replace(' OR', ' ||')
+    condition = condition.replace('OR ', '|| ')
+    condition = condition.replace(' NOT', ' !')
+    condition = condition.replace('NOT ', '! ')
+
+    # Handle standalone operators (less common but possible)
+    condition = condition.replace(' AND', ' &&')
+    condition = condition.replace('AND', '&&')
+    condition = condition.replace(' OR', ' ||')
+    condition = condition.replace('OR', '||')
+    condition = condition.replace(' NOT', ' !')
+    condition = condition.replace('NOT', '!')
+
+    return condition
+
+def generate_c_code(instructions, variables, z_file="unknown.z"):
     """Generate compilable C code from parsed ZLang instructions."""
     c_lines = [
         "#define _CRT_SECURE_NO_WARNINGS",
@@ -55,10 +79,15 @@ def generate_c_code(instructions, variables, labels, z_file="unknown.z"):
         "    fprintf(stderr, \"Error [E%d]: %s\\n\", code, msg);",
         "    exit(code);",
         "}",
-        "double read_double() {",
-        "    double d;",
+        "double read_double(const char* prompt,d) {",
+        "    printf(\"%s\", prompt);",
         "    if (scanf(\"%lf\", &d) != 1) error_exit(1, \"Failed to read number\");",
         "    return d;",
+        "}",
+        "int read_int(const char* prompt,i) {",
+        "    printf(\"%s\", prompt);",
+        "    if (scanf(\"%d\", &i) != 1) error_exit(1, \"Failed to read integer\");",
+        "    return i;",
         "}",
         ""
     ]
@@ -105,8 +134,8 @@ def generate_c_code(instructions, variables, labels, z_file="unknown.z"):
             func_depth = max(func_depth - 1, 0)
             if func_depth == 0:
                 current_function = None
-        elif current_function:
-            # Collect local identifiers based on operation semantics
+        elif current_function or op == "MOV":
+            # Collect local identifiers based on operation semantics (including global MOV)
             dests = []
             if op == "MOV":
                 if len(operands) >= 2:
@@ -153,13 +182,15 @@ def generate_c_code(instructions, variables, labels, z_file="unknown.z"):
             elif op == "CALL" and len(operands) >= 1:
                 dests.append(operands[-1])
             for d in dests:
-                if d in function_params[current_function]:
+                if current_function and d in function_params[current_function]:
                     continue
                 if d not in sanitized_cache:
                     sanitized_cache[d] = sanitize_identifier(d)
                 d_clean = sanitized_cache[d]
                 if not is_number(d_clean) and IDENTIFIER_VALIDATE_RE.match(d_clean):
-                    local_vars[current_function].add(d_clean)
+                    if current_function:
+                        local_vars[current_function].add(d_clean)
+                    # For global variables, don't add to local_vars since they're handled separately
 
     # Global variables: filter to identifiers not declared as locals, params or function names
     if variables:
@@ -232,6 +263,7 @@ def generate_c_code(instructions, variables, labels, z_file="unknown.z"):
         if op in ["IF", "ELIF", "ELSE", "WHILE", "FOR"]:
             cond = " ".join(operands)
             cond = sanitize_condition(cond)
+            cond = translate_logical_operators(cond)
             if op == "IF":
                 c_lines.append(f"{prefix}if ({cond}) {{ // line {line_num}")
             elif op == "ELIF":
@@ -357,17 +389,48 @@ def generate_c_code(instructions, variables, labels, z_file="unknown.z"):
                 sanitized_cache[operands[0]] = sanitize_identifier(operands[0])
             func_name = f"z_{sanitized_cache[operands[0]]}"
             args = ", ".join(operands[1:-1])
-            if operands[-1] not in sanitized_cache:
-                sanitized_cache[operands[-1]] = sanitize_identifier(operands[-1])
-            ret_var = sanitized_cache[operands[-1]]
-            c_lines.append(f"{prefix}{ret_var} = {func_name}({args}); // line {line_num}")
+            ret_var_name = operands[-1]
+
+            # If return variable is "_", generate just the function call (discard return value)
+            if ret_var_name == "_":
+                c_lines.append(f"{prefix}{func_name}({args}); // line {line_num}")
+            else:
+                if ret_var_name not in sanitized_cache:
+                    sanitized_cache[ret_var_name] = sanitize_identifier(ret_var_name)
+                ret_var = sanitized_cache[ret_var_name]
+                c_lines.append(f"{prefix}{ret_var} = {func_name}({args}); // line {line_num}")
             continue
 
-    # Close any remaining open functions (safety)
+        if op == "READ":
+            if len(operands) == 3 and operands[0] in ["int", "double", "float"]:
+                # Enhanced READ: READ <type> <prompt> <variable>
+                read_type = operands[0]
+                prompt = operands[1]
+                dest = operands[2]
+                if dest not in sanitized_cache:
+                    sanitized_cache[dest] = sanitize_identifier(dest)
+                
+                # Generate appropriate read function call based on type
+                if read_type == "int":
+                    c_lines.append(f"{prefix}{sanitized_cache[dest]} = read_int({prompt},{dest}); // line {line_num}")
+                else:  # double or float
+                    c_lines.append(f"{prefix}{sanitized_cache[dest]} = read_double({prompt},{dest}); // line {line_num}")
+        if op == "INC":
+            var = operands[0]
+            if var not in sanitized_cache:
+                sanitized_cache[var] = sanitize_identifier(var)
+            c_lines.append(f"{prefix}{sanitized_cache[var]}++; // line {line_num}")
+            continue
+        if op == "DEC":
+            var = operands[0]
+            if var not in sanitized_cache:
+                sanitized_cache[var] = sanitize_identifier(var)
+            c_lines.append(f"{prefix}{sanitized_cache[var]}--; // line {line_num}")
+            continue
     while func_stack:
         closing_func = func_stack.pop()
         if closing_func == 'main':
-            c_lines.append(f"    return 0;")
+            c_lines.append(f"   return 0;")
         c_lines.append("}")
 
     return "\n".join(c_lines)
