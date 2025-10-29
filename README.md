@@ -1,6 +1,6 @@
 # Z Compiler
 
-🚀 A self-contained, cross-platform compiler for the Z programming language.
+🚀 The Compiler for the Z programming language.
 
 **Single File Distribution** • **Integrated Installation** • **No Dependencies** • **Enhanced Robustness**
 
@@ -102,7 +102,6 @@ z --help         # Show help
 - ✅ **Built-in updater** (`z -update`)
 
 ### 🛡️ Enhanced Robustness & Security
-- ✅ **File size limits** (50MB max) to prevent memory exhaustion
 - ✅ **Path traversal protection** for input/output files
 - ✅ **Memory leak prevention** with proper cleanup on failures
 - ✅ **Race condition fixes** in update mechanism with retry logic
@@ -135,25 +134,40 @@ Z provides a straightforward way to write procedural programs with explicit inst
 
 **Input (`example.z`)**
 ```z
+FN fibonacci(int n) -> int:
+    IF n <= 1:
+        RET n
+
+    // Calculate fibonacci using iterative approach
+    CONST int initial_a 0
+    CONST int initial_b 1
+    MOV int a initial_a
+    MOV int b initial_b
+    MOV int fib 0
+
+    FOR i 2..n:
+        // Calculate next fibonacci number: fib = a + b
+        ADD a b fib
+        // Shift: a becomes old b, b becomes new fib
+        MOV a b
+        MOV b fib
+
+    RET b
+
 FN main():
-    // Enhanced READ with type and prompt
-    READ int "Enter your age: " age
-    READ double "Enter your height: " height
-    
-    // Increment and decrement operations
-    INC age
-    DEC height
-    
-    PRINT age
-    PRINT height
+    MOV int count 10
+    MOV int result 0
+
+    // Calculate fibonacci
+    CALL fibonacci(count) -> result
+    PRINT result
+
+    RET 0
 ```
 
 **Output (`example.exe`)**
 ```
-Enter your age: 25
-Enter your height: 175.5
-26
-174.5
+55
 ```
 
 ---
@@ -162,9 +176,8 @@ Enter your height: 175.5
 
 ### Variables & Data Types
 - **Type declarations**: `int`, `float`, `double`, `bool`, `string`
-- **Immutable by default**: `MOV int x 10` (immutable)
-- **Mutable variables**: `MOV mut int y 20` (mutable)
-- **Dynamic typing**: Variables default to `double` if no type specified
+- **Mutable variables**: `MOV int x 10` (mutable by default)
+- **Immutable constants**: `CONST int MAX_SIZE 100` (cannot be reassigned)
 - **Redeclaration protection**: Prevents accidental variable redeclaration
 
 ### Arithmetic Operations
@@ -185,7 +198,9 @@ FN function_name(param1, param2):
     RET value
 
 FN calculate(int x, double y) -> double:
-    MUL x y result
+    CONST double factor 2.5
+    MUL x factor temp
+    ADD temp y result
     RET result
 ```
 
@@ -313,12 +328,11 @@ Output:        hello.exe
 Size:          165.5 KB
 ```
 
-### Recent Improvements
-- **Enhanced security** with path traversal protection
-- **Better error messages** with file/line context
-- **Memory leak fixes** with proper cleanup
-- **Race condition fixes** in update mechanism
-- **Buffer overflow protection** with file size limits
-- **Improved variable handling** with redeclaration detection
+## Improvements v0.9.5
+
+The new version of Z, version 0.9.5 has added
+- Added safeguards to booleans with capital True and capital False
+- Fixed boolean decleration
+- Added the Overflow error, error 45
 
 Enjoy building with Z! 🚀
