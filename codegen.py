@@ -13,12 +13,16 @@ def format_parameters(params):
         if i + 1 < len(params) and params[i] in ["int", "double", "float", "bool","string"]:
             param_type = params[i]
             param_name = IDENTIFIER_SANITIZE_RE.sub('_', params[i + 1])
-            formatted.append(f"{param_type} {param_name}")
+            # Convert Z types to C types for parameters
+            if param_type == "string":
+                c_type = "const char*"
+            else:
+                c_type = param_type
+            formatted.append(f"{c_type} {param_name}")
             i += 2
         else:
-            pname = IDENTIFIER_SANITIZE_RE.sub('_', params[i])
-            formatted.append(f"double {pname}")
-            i += 1
+            # All parameters must be typed now
+            raise CompilerError(f"Parameter {params[i]} must have explicit type", error_code=ErrorCode.TYPE_ERROR)
     return formatted
 
 def sanitize_identifier(name):
@@ -35,6 +39,35 @@ def is_number(token: str) -> bool:
 def sanitize_condition(cond):
     """Remove trailing colons from conditions like IF, WHILE."""
     return cond.rstrip(':')
+
+def add_overflow_check(prefix: str, operation: str, a: str, b: str, res_var: str, line_num: int) -> list[str]:
+    """Generate C code with overflow check for arithmetic operations.
+    
+    Args:
+        prefix: Indentation prefix
+        operation: The arithmetic operation ('+', '-', '*', '/', '%')
+        a: Left operand
+        b: Right operand
+        res_var: Result variable name
+        line_num: Line number for error reporting
+        
+    Returns:
+        List of C code lines with overflow checking
+    """
+    lines = []
+    if operation in ['+', '-', '*']:
+        # For +, -, * we can do overflow checking
+        lines.append(f"{prefix}{{")
+        lines.append(f"{prefix}    long long _temp = (long long){a} {operation} (long long){b};")
+        lines.append(f"{prefix}    if (_temp > INT_MAX || _temp < INT_MIN) {{")
+        lines.append(f"{prefix}        error_exit({ErrorCode.NUMBER_OVERFLOW.value}, \"Integer overflow in {operation} operation at line {line_num}\");")
+        lines.append(f"{prefix}    }}")
+        lines.append(f"{prefix}    {res_var} = {a} {operation} {b};")
+        lines.append(f"{prefix}}}")
+    else:
+        # For / and % we just do the operation directly
+        lines.append(f"{prefix}{res_var} = {a} {operation} {b};")
+    return lines
 
 def translate_logical_operators(condition):
     """Translate Z logical operators to C logical operators."""
@@ -60,7 +93,7 @@ def translate_logical_operators(condition):
 
     return condition
 
-def generate_c_code(instructions, variables, z_file="unknown.z"):
+def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
     """Generate compilable C code from parsed ZLang instructions."""
     c_lines = [
         "#define _CRT_SECURE_NO_WARNINGS",
@@ -79,21 +112,53 @@ def generate_c_code(instructions, variables, z_file="unknown.z"):
         "    fprintf(stderr, \"Error [E%d]: %s\\n\", code, msg);",
         "    exit(code);",
         "}",
-        "double read_double(const char* prompt,d) {",
+        "double read_double(const char* prompt, double d) {",
         "    printf(\"%s\", prompt);",
         "    if (scanf(\"%lf\", &d) != 1) error_exit(1, \"Failed to read number\");",
         "    return d;",
         "}",
-        "int read_int(const char* prompt,i) {",
+        "int read_int(const char* prompt, int i) {",
         "    printf(\"%s\", prompt);",
         "    if (scanf(\"%d\", &i) != 1) error_exit(1, \"Failed to read integer\");",
         "    return i;",
+        "}",
+        "const char* read_str(const char* prompt, const char* s) {",
+        "    printf(\"%s\", prompt);",
+        "    // Use a fixed-size buffer for simplicity",
+        "    static char buffer[1024];",
+        "    if (scanf(\"%1023s\", buffer) != 1) error_exit(1, \"Failed to read string\");",
+        "    return buffer;",
         "}",
         ""
     ]
     
     # Cache for sanitized identifiers to avoid redundant processing
     sanitized_cache = {}
+
+    # Helper to check if a variable is const
+    def is_const(scope, name):
+        if (scope, name) in declarations:
+            return declarations[(scope, name)].get("const", False)
+        if (None, name) in declarations:
+            return declarations[(None, name)].get("const", False)
+        return False
+
+    # Helper to get C type from Z type
+    def get_c_type(z_type):
+        if z_type == "string":
+            return "const char*"
+        return z_type  # int, double, bool, float map directly to C
+
+    # Helper to get variable type
+    def get_var_type(scope, name):
+        # Handle boolean literals
+        if name in {"true", "false"}:
+            return "bool"
+        if (scope, name) in declarations:
+            return declarations[(scope, name)].get("type", "double")
+        if (None, name) in declarations:
+            return declarations[(None, name)].get("type", "double")
+        return "double"
 
     # Track variable types: var_name -> type
     variable_types = {}
@@ -111,7 +176,14 @@ def generate_c_code(instructions, variables, z_file="unknown.z"):
             function_names.add(fname)
             current_function = fname
             func_depth = 0  # will increase on next INDENTs
-            params = operands[1:]
+
+            # Check if return type is specified
+            if len(operands) > 1 and operands[-1] in ["int", "double", "float", "bool", "string"]:
+                # Last operand is return type, exclude it from params
+                params = operands[1:-1]
+            else:
+                params = operands[1:]
+
             function_params[fname] = params
             local_vars[fname] = set()
             
@@ -124,9 +196,8 @@ def generate_c_code(instructions, variables, z_file="unknown.z"):
                     variable_types[param_name] = param_type
                     i += 2
                 else:
-                    # Default to double for untyped parameters
-                    if params[i] not in variable_types:
-                        variable_types[params[i]] = "double"
+                    # All parameters must be typed
+                    raise CompilerError(f"Parameter {params[i]} must have explicit type", error_code=ErrorCode.TYPE_ERROR)
                     i += 1
         elif current_function and op == "INDENT":
             func_depth += 1
@@ -138,24 +209,32 @@ def generate_c_code(instructions, variables, z_file="unknown.z"):
             # Collect local identifiers based on operation semantics (including global MOV)
             dests = []
             if op == "MOV":
-                if len(operands) >= 2:
-                    if operands[0] in ["int", "float", "double", "string", "bool"] and len(operands) >= 2:
-                        # Explicit type declaration: type dest [value]
-                        var_type = operands[0]
-                        dest = operands[1]
-                        # Track the variable type
-                        if dest not in variable_types:
-                            variable_types[dest] = var_type
-                        dests.append(dest)
-                    else:
-                        # Simple assignment: value dest
-                        dests.append(operands[1])
+                if len(operands) >= 2 and operands[0] in ["int", "float", "double", "string", "bool"]:
+                    # Typed MOV: type dest [value]
+                    var_type = operands[0]
+                    dest = operands[1]
+                    # Track the variable type (for use in other operations)
+                    if dest not in variable_types:
+                        variable_types[dest] = var_type
+                    dests.append(dest)
+                elif len(operands) == 2:
+                    # Assignment: dest expr - dest should already be declared
+                    dest = operands[0]
+                    dests.append(dest)
+            elif op == "CONST":
+                if len(operands) >= 2 and operands[0] in ["int", "float", "double", "string", "bool"]:
+                    var_type = operands[0]
+                    dest = operands[1]
+                    # Track the variable type (for use in other operations)
+                    if dest not in variable_types:
+                        variable_types[dest] = var_type
+                    dests.append(dest)
             elif op in ["ADD", "SUB", "MUL", "DIV", "MOD"] and len(operands) == 3:
                 a, b, res = operands
-                
+
                 # Type inference for result based on operands
                 res_type = "double"  # default
-                
+
                 # Check if result variable has explicit type declaration
                 if res in variable_types:
                     res_type = variable_types[res]
@@ -163,7 +242,7 @@ def generate_c_code(instructions, variables, z_file="unknown.z"):
                     # Try to infer from operands
                     a_type = variable_types.get(a, "double")
                     b_type = variable_types.get(b, "double")
-                    
+
                     # If both operands are int, result is int (except for division which is double)
                     if a_type == "int" and b_type == "int" and op != "DIV":
                         res_type = "int"
@@ -173,14 +252,12 @@ def generate_c_code(instructions, variables, z_file="unknown.z"):
                     # If either operand is bool, convert to int for arithmetic
                     elif a_type == "bool" or b_type == "bool":
                         res_type = "int"
-                
+
                 # Track the inferred type
                 if res not in variable_types:
                     variable_types[res] = res_type
-                
+
                 dests.append(res)
-            elif op == "CALL" and len(operands) >= 1:
-                dests.append(operands[-1])
             for d in dests:
                 if current_function and d in function_params[current_function]:
                     continue
@@ -194,11 +271,9 @@ def generate_c_code(instructions, variables, z_file="unknown.z"):
 
     # Global variables: filter to identifiers not declared as locals, params or function names
     if variables:
-        c_lines.append("// Global variables")
         declared_locals = set().union(*local_vars.values()) if local_vars else set()
         declared_params = set()
         for fname, params in function_params.items():
-            # extract just names from typed params
             i = 0
             while i < len(params):
                 if params[i] in ["int", "float", "double", "bool", "string"] and i + 1 < len(params):
@@ -211,7 +286,11 @@ def generate_c_code(instructions, variables, z_file="unknown.z"):
                         sanitized_cache[params[i]] = sanitize_identifier(params[i])
                     declared_params.add(sanitized_cache[params[i]])
                     i += 1
+
+        global_var_lines = []
         for var in sorted(variables):
+            if var in {"true", "false"}:
+                continue
             if var not in sanitized_cache:
                 sanitized_cache[var] = sanitize_identifier(var)
             var_clean = sanitized_cache[var]
@@ -219,10 +298,25 @@ def generate_c_code(instructions, variables, z_file="unknown.z"):
                 and var_clean not in function_names
                 and var_clean not in declared_locals
                 and var_clean not in declared_params):
-                # Use tracked type or default to double
-                var_type = variable_types.get(var, "double")
-                c_lines.append(f"{var_type} {var_clean} = 0.0;")
-        c_lines.append("")
+                var_type = get_var_type(None, var)
+                c_type = get_c_type(var_type)
+                const_prefix = "const " if is_const(None, var) else ""
+
+                if var_type == "string":
+                    init_value = 'NULL'
+                elif var_type == "int":
+                    init_value = '0'
+                elif var_type == "bool":
+                    init_value = 'false'
+                else:
+                    init_value = '0.0'
+
+                global_var_lines.append(f"{const_prefix}{c_type} {var_clean} = {init_value};")
+
+        if global_var_lines:
+            c_lines.append("// Global variables")
+            c_lines.extend(global_var_lines)
+            c_lines.append("")
 
     # Generate functions
     indent = "    "
@@ -239,13 +333,37 @@ def generate_c_code(instructions, variables, z_file="unknown.z"):
                 sanitized_cache[raw_name] = sanitize_identifier(raw_name)
             fname = ("main" if is_main else f"z_{sanitized_cache.get(raw_name, raw_name)}")
             params = operands[1:]
+
+            # Check if return type is specified
+            ret_type = "int" if is_main else "double"  # default
+            if len(operands) > 1 and operands[-1] in ["int", "double", "float", "bool", "string"]:
+                # Last operand is return type
+                ret_type = operands[-1]
+                params = operands[1:-1]  # exclude return type from params
+            else:
+                params = operands[1:]  # no return type specified
+
+            # Convert return type to C type
+            c_ret_type = get_c_type(ret_type)
             param_str = ", ".join(format_parameters(params)) if not is_main else "void"
-            ret_type = ("int" if is_main else "double")
-            c_lines.append(f"{prefix}{ret_type} {fname}({param_str}) {{")  
+            c_lines.append(f"{prefix}{c_ret_type} {fname}({param_str}) {{")  
             # declare local variables
             for var in sorted(local_vars.get(raw_name, set())):
-                var_type = variable_types.get(var, "double")
-                c_lines.append(f"{prefix}{indent}{var_type} {var} = 0.0;")
+                var_type = get_var_type(raw_name, var)
+                c_type = get_c_type(var_type)
+                const_prefix = "const " if is_const(raw_name, var) else ""
+
+                # Initialize variables with appropriate default values based on type
+                if var_type == "string":
+                    init_value = 'NULL'
+                elif var_type == "int":
+                    init_value = '0'
+                elif var_type == "bool":
+                    init_value = 'false'
+                else:  # double, float
+                    init_value = '0.0'
+
+                c_lines.append(f"{prefix}{indent}{const_prefix}{c_type} {var} = {init_value};")
             func_stack.append(raw_name)
             indent_level += 1
             continue
@@ -265,13 +383,13 @@ def generate_c_code(instructions, variables, z_file="unknown.z"):
             cond = sanitize_condition(cond)
             cond = translate_logical_operators(cond)
             if op == "IF":
-                c_lines.append(f"{prefix}if ({cond}) {{ // line {line_num}")
+                c_lines.append(f"{prefix}if ({cond}) {{ ")
             elif op == "ELIF":
-                c_lines.append(f"{prefix}else if ({cond}) {{ // line {line_num}")
+                c_lines.append(f"{prefix}else if ({cond}) {{ ")
             elif op == "ELSE":
-                c_lines.append(f"{prefix}else {{ // line {line_num}")
+                c_lines.append(f"{prefix}else {{ ")
             elif op == "WHILE":
-                c_lines.append(f"{prefix}while ({cond}) {{ // line {line_num}")
+                c_lines.append(f"{prefix}while ({cond}) {{ ")
             elif op == "FOR":
                 if len(operands) >= 4:
                     var, start_or_sep, *rest = operands
@@ -297,53 +415,91 @@ def generate_c_code(instructions, variables, z_file="unknown.z"):
                 if var not in sanitized_cache:
                     sanitized_cache[var] = sanitize_identifier(var)
                 var_clean = sanitized_cache[var]
-                c_lines.append(f"{prefix}for (int {var_clean} = {start}; {var_clean} <= {end}; {var_clean}++) {{ // line {line_num}")
+                c_lines.append(f"{prefix}for (int {var_clean} = {start}; {var_clean} <= {end}; {var_clean}++) {{")
             indent_level += 1
             continue
 
         if op == "MOV":
-            if len(operands) == 2:
-                src, dest = operands
-                if dest not in sanitized_cache:
-                    sanitized_cache[dest] = sanitize_identifier(dest)
-                c_lines.append(f"{prefix}{sanitized_cache[dest]} = {src}; // line {line_num}")
-            elif len(operands) >= 2 and operands[0] in ["int", "float", "double", "string", "bool"]:
+            if len(operands) >= 2 and operands[0] in ["int", "float", "double", "string", "bool"]:
                 dest = operands[1]
                 if dest not in sanitized_cache:
                     sanitized_cache[dest] = sanitize_identifier(dest)
-                expr = " ".join(operands[2:]) if len(operands) > 2 else "0"
-                c_lines.append(f"{prefix}{sanitized_cache[dest]} = {expr}; // line {line_num}")
+                # Check if a value was provided
+                if len(operands) > 2:
+                    expr = " ".join(operands[2:])
+                else:
+                    # No value provided, use type-appropriate default
+                    var_type = operands[0]
+                    if var_type == "string":
+                        expr = 'NULL'
+                    elif var_type == "int":
+                        expr = '0'
+                    elif var_type == "bool":
+                        expr = 'false'
+                    else:  # double, float
+                        expr = '0.0'
+                # Generate only assignment (declaration is already at top of function)
+                c_lines.append(f"{prefix}{sanitized_cache[dest]} = {expr}; ")
+            elif len(operands) == 2:
+                # Assignment: dest expr
+                dest, expr = operands
+                if dest not in sanitized_cache:
+                    sanitized_cache[dest] = sanitize_identifier(dest)
+                c_lines.append(f"{prefix}{sanitized_cache[dest]} = {expr}; ")
+            continue
+
+        if op == "CONST":
+            if len(operands) >= 2 and operands[0] in ["int", "float", "double", "string", "bool"]:
+                dest = operands[1]
+                if dest not in sanitized_cache:
+                    sanitized_cache[dest] = sanitize_identifier(dest)
+                # Check if a value was provided
+                if len(operands) > 2:
+                    expr = " ".join(operands[2:])
+                else:
+                    # No value provided, use type-appropriate default
+                    var_type = operands[0]
+                    if var_type == "string":
+                        expr = 'NULL'
+                    elif var_type == "int":
+                        expr = '0'
+                    elif var_type == "bool":
+                        expr = 'false'
+                    else:  # double, float
+                        expr = '0.0'
+                # Generate only assignment (declaration is already at top of function)
+                c_lines.append(f"{prefix}{sanitized_cache[dest]} = {expr}; ")
             continue
 
         if op == "ADD":
             a, b, res = operands
             if res not in sanitized_cache:
                 sanitized_cache[res] = sanitize_identifier(res)
-            c_lines.append(f"{prefix}{sanitized_cache[res]} = {a} + {b}; // line {line_num}")
+            c_lines.extend(add_overflow_check(prefix, '+', a, b, f"{sanitized_cache[res]}", line_num))
             continue
         if op == "SUB":
             a, b, res = operands
             if res not in sanitized_cache:
                 sanitized_cache[res] = sanitize_identifier(res)
-            c_lines.append(f"{prefix}{sanitized_cache[res]} = {a} - {b}; // line {line_num}")
+            c_lines.extend(add_overflow_check(prefix, '-', a, b, f"{sanitized_cache[res]}", line_num))
             continue
         if op == "MUL":
             a, b, res = operands
             if res not in sanitized_cache:
                 sanitized_cache[res] = sanitize_identifier(res)
-            c_lines.append(f"{prefix}{sanitized_cache[res]} = {a} * {b}; // line {line_num}")
+            c_lines.extend(add_overflow_check(prefix, '*', a, b, f"{sanitized_cache[res]}", line_num))
             continue
         if op == "DIV":
             a, b, res = operands
             if res not in sanitized_cache:
                 sanitized_cache[res] = sanitize_identifier(res)
-            c_lines.append(f"{prefix}{sanitized_cache[res]} = {a} / {b}; // line {line_num}")
+            c_lines.extend(add_overflow_check(prefix, '/', a, b, f"{sanitized_cache[res]}", line_num))
             continue
         if op == "MOD":
             a, b, res = operands
             if res not in sanitized_cache:
                 sanitized_cache[res] = sanitize_identifier(res)
-            c_lines.append(f"{prefix}{sanitized_cache[res]} = fmod({a}, {b}); // line {line_num}")
+            c_lines.extend(add_overflow_check(prefix, '%', a, b, f"{sanitized_cache[res]}", line_num))
             continue
         if op == "PRINT":
             operand = operands[0]
@@ -352,36 +508,36 @@ def generate_c_code(instructions, variables, z_file="unknown.z"):
             if operand in variable_types:
                 var_type = variable_types[operand]
                 if var_type == "int":
-                    c_lines.append(f"{prefix}print_int({operand}); // line {line_num}")
+                    c_lines.append(f"{prefix}print_int({operand});")
                 elif var_type == "bool":
-                    c_lines.append(f"{prefix}print_bool({operand}); // line {line_num}")
+                    c_lines.append(f"{prefix}print_bool({operand});")
                 elif var_type == "string":
-                    c_lines.append(f"{prefix}print_str({operand}); // line {line_num}")
+                    c_lines.append(f"{prefix}print_str({operand});")
                 else:  # double or default
-                    c_lines.append(f"{prefix}print_double({operand}); // line {line_num}")
+                    c_lines.append(f"{prefix}print_double({operand});")
             elif operand.startswith('"') and operand.endswith('"'):
                 # String literal
-                c_lines.append(f"{prefix}print_str({operand}); // line {line_num}")
+                c_lines.append(f"{prefix}print_str({operand});")
             elif operand in ["true", "false"]:
                 # Boolean literal
-                c_lines.append(f"{prefix}print_bool({operand}); // line {line_num}")
+                c_lines.append(f"{prefix}print_bool({operand});")
             elif is_number(operand):
                 # Numeric literal - check if it looks like an integer
                 if '.' in operand or 'e' in operand.lower():
-                    c_lines.append(f"{prefix}print_double({operand}); // line {line_num}")
+                    c_lines.append(f"{prefix}print_double({operand});")
                 else:
-                    c_lines.append(f"{prefix}print_int({operand}); // line {line_num}")
+                    c_lines.append(f"{prefix}print_int({operand});")
             else:
                 # Default to double for variables/expressions without explicit type
-                c_lines.append(f"{prefix}print_double({operand}); // line {line_num}")
+                c_lines.append(f"{prefix}print_double({operand});")
             continue
         if op == "ERROR":
             msg = " ".join(operands)
             msg = msg.replace('"', '')
-            c_lines.append(f"{prefix}error_exit(1, \"{msg}\"); // line {line_num}")
+            c_lines.append(f"{prefix}error_exit(1, \"{msg}\");")
             continue
         if op == "RET":
-            c_lines.append(f"{prefix}return {operands[0] if operands else '0'}; // line {line_num}")
+            c_lines.append(f"{prefix}return {operands[0] if operands else '0'};")
             continue
 
         if op == "CALL":
@@ -393,16 +549,16 @@ def generate_c_code(instructions, variables, z_file="unknown.z"):
 
             # If return variable is "_", generate just the function call (discard return value)
             if ret_var_name == "_":
-                c_lines.append(f"{prefix}{func_name}({args}); // line {line_num}")
+                c_lines.append(f"{prefix}{func_name}({args});")
             else:
                 if ret_var_name not in sanitized_cache:
                     sanitized_cache[ret_var_name] = sanitize_identifier(ret_var_name)
                 ret_var = sanitized_cache[ret_var_name]
-                c_lines.append(f"{prefix}{ret_var} = {func_name}({args}); // line {line_num}")
+                c_lines.append(f"{prefix}{ret_var} = {func_name}({args});")
             continue
 
         if op == "READ":
-            if len(operands) == 3 and operands[0] in ["int", "double", "float"]:
+            if len(operands) == 3 and operands[0] in ["int", "double", "float", "string"]:
                 # Enhanced READ: READ <type> <prompt> <variable>
                 read_type = operands[0]
                 prompt = operands[1]
@@ -410,27 +566,34 @@ def generate_c_code(instructions, variables, z_file="unknown.z"):
                 if dest not in sanitized_cache:
                     sanitized_cache[dest] = sanitize_identifier(dest)
                 
+                # Track the variable type for proper code generation
+                if dest not in variable_types:
+                    variable_types[dest] = read_type
+                
                 # Generate appropriate read function call based on type
-                if read_type == "int":
-                    c_lines.append(f"{prefix}{sanitized_cache[dest]} = read_int({prompt},{dest}); // line {line_num}")
+                if read_type == "string":
+                    c_lines.append(f"{prefix}{sanitized_cache[dest]} = read_str({prompt}, {sanitized_cache[dest]});")
+                elif read_type == "int":
+                    c_lines.append(f"{prefix}{sanitized_cache[dest]} = read_int({prompt}, {sanitized_cache[dest]});")
                 else:  # double or float
-                    c_lines.append(f"{prefix}{sanitized_cache[dest]} = read_double({prompt},{dest}); // line {line_num}")
+                    c_lines.append(f"{prefix}{sanitized_cache[dest]} = read_double({prompt}, {sanitized_cache[dest]});")
+            continue
         if op == "INC":
             var = operands[0]
             if var not in sanitized_cache:
                 sanitized_cache[var] = sanitize_identifier(var)
-            c_lines.append(f"{prefix}{sanitized_cache[var]}++; // line {line_num}")
+            c_lines.append(f"{prefix}{sanitized_cache[var]}++;")
             continue
         if op == "DEC":
             var = operands[0]
             if var not in sanitized_cache:
                 sanitized_cache[var] = sanitize_identifier(var)
-            c_lines.append(f"{prefix}{sanitized_cache[var]}--; // line {line_num}")
+            c_lines.append(f"{prefix}{sanitized_cache[var]}--;")
             continue
     while func_stack:
         closing_func = func_stack.pop()
         if closing_func == 'main':
-            c_lines.append(f"   return 0;")
+            c_lines.append(f"return 0;")
         c_lines.append("}")
 
     return "\n".join(c_lines)
