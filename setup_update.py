@@ -14,7 +14,7 @@ from typing import Optional
 from urllib.request import Request, urlopen
 
 # Version information
-VERSION = "0.8"
+VERSION = "0.9.5"
 
 # Initialize colorama for Windows ANSI support
 try:
@@ -373,6 +373,7 @@ def _get_latest_z_exe_download_url() -> Optional[str]:
         req = Request(GITHUB_LATEST_API, headers={"User-Agent": "ZCompiler-Updater"})
         with urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read().decode("utf-8"))
+
         assets = data.get("assets", []) or []
         # Prefer an asset explicitly named z.exe
         for a in assets:
@@ -387,7 +388,8 @@ def _get_latest_z_exe_download_url() -> Optional[str]:
         # Last resort: first asset url
         if assets:
             return assets[0].get("browser_download_url")
-    except Exception:
+    except Exception as e:
+        print_colored(f"✗ GitHub API error: {e}", Colors.RED)
         return None
     return None
 
