@@ -9,7 +9,7 @@ IDENTIFIER_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
 TOKEN_RE = re.compile(r'"[^"]*"|\S+')
 
 OPS = {"MOV", "ADD", "SUB", "MUL", "DIV", "PRINT", "READ", "MOD", "INC", "DEC", "CALL", "RET", "ERROR",
-       "FNDEF", "FN", "FOR", "WHILE", "IF", "ELSE", "ELIF", "PRINTSTR"}
+       "FNDEF", "FN", "FOR", "WHILE", "IF", "ELSE", "ELIF", "PRINTSTR", "CONST"}
 
 C_KEYWORDS = {
     "auto", "break", "case", "char", "const", "continue", "default",
@@ -114,9 +114,11 @@ def parse_z_file(z_file: str) -> Tuple[list, set, Dict[Tuple[Optional[str], str]
             decl = line[2:].strip()  # after 'FN'
             decl = decl[:-1] if decl.endswith(':') else decl
             # Split off return type if present
+            ret_type = None
             if '->' in decl:
-                decl, _ = decl.split('->', 1)
+                decl, ret_type = decl.split('->', 1)
                 decl = decl.strip()
+                ret_type = ret_type.strip()
             # Name and params
             if '(' in decl and ')' in decl:
                 func_name = decl.split('(')[0].strip()
@@ -131,8 +133,12 @@ def parse_z_file(z_file: str) -> Tuple[list, set, Dict[Tuple[Optional[str], str]
                         if len(parts) == 2 and parts[0] in {"int", "float", "double", "bool", "string"}:
                             params.extend(parts)  # [type, name]
                         else:
-                            params.append(parts[-1])  # name only
-                instructions.append(("FNDEF", [func_name] + params, line_num))
+                            raise CompilerError(f"Function parameter '{p}' requires explicit type declaration (e.g., int param)", line_num, ErrorCode.SYNTAX_ERROR, z_file)
+                # Include return type in FNDEF if present
+                fndef_operands = [func_name] + params
+                if ret_type:
+                    fndef_operands.append(ret_type)
+                instructions.append(("FNDEF", fndef_operands, line_num))
                 current_function = func_name
                 func_depth = 0
             else:
@@ -183,24 +189,29 @@ def parse_z_file(z_file: str) -> Tuple[list, set, Dict[Tuple[Optional[str], str]
                 if len(parts) == 2:
                     operands = [operands[0], parts[0], "..", parts[1]]
 
-        # Handle MOV with type declarations keeping full expression
-        if op == "MOV":
+        # Handle CONST with type declarations
+        if op == "CONST":
             type_keywords = ["int", "float", "double", "string", "bool"]
-            if operands and operands[0] == "mut" and len(operands) >= 3 and operands[1] in type_keywords:
-                # MOV mut <type> <dest> [expr]
-                type_decl = operands[1]
-                remaining = operands[2:]
+            if operands and operands[0] in type_keywords:
+                type_decl = operands[0]
+                remaining = operands[1:]
                 if not remaining:
-                    raise CompilerError("Missing destination for MOV", line_num, ErrorCode.SYNTAX_ERROR, z_file)
+                    raise CompilerError("Missing destination for CONST", line_num, ErrorCode.SYNTAX_ERROR, z_file)
                 dest = remaining[0]
                 expr = " ".join(remaining[1:]).strip()
                 if expr:
                     operands = [type_decl, dest] + [expr]
                 else:
                     operands = [type_decl, dest]
-                declarations[(current_function, dest)] = {"mutable": True, "line": line_num}
-            elif operands and operands[0] in type_keywords:
-                # MOV <type> <dest> [expr]  -> default immutable
+                declarations[(current_function, dest)] = {"const": True, "type": type_decl, "line": line_num}
+            else:
+                raise CompilerError("CONST requires explicit type declaration (e.g., CONST int var value)", line_num, ErrorCode.SYNTAX_ERROR, z_file)
+
+        # Handle MOV with type declarations (mutable by default)
+        if op == "MOV":
+            type_keywords = ["int", "float", "double", "string", "bool"]
+            if operands and operands[0] in type_keywords:
+                # MOV <type> <dest> [expr]  -> mutable by default
                 type_decl = operands[0]
                 remaining = operands[1:]
                 if not remaining:
@@ -211,12 +222,27 @@ def parse_z_file(z_file: str) -> Tuple[list, set, Dict[Tuple[Optional[str], str]
                     operands = [type_decl, dest] + [expr]
                 else:
                     operands = [type_decl, dest]
-                declarations[(current_function, dest)] = {"mutable": False, "line": line_num}
+                declarations[(current_function, dest)] = {"const": False, "type": type_decl, "line": line_num}
             elif len(operands) >= 2:
-                # value dest
-                value = " ".join(operands[:-1])
-                dest = operands[-1]
-                operands = [value, dest]
+                # MOV <dest> <expr> - assignment to existing variable
+                dest = operands[0]
+                expr = " ".join(operands[1:]).strip()
+                operands = [dest, expr]
+                # Note: We don't add to declarations since it's a reassignment
+            else:
+                # Require explicit type declaration
+                raise CompilerError("MOV requires explicit type declaration (e.g., MOV int var value)", line_num, ErrorCode.SYNTAX_ERROR, z_file)
+
+        # Validate operands for invalid boolean literals before processing
+        for i, t in enumerate(operands):
+            stripped = t.strip()
+            if stripped in {"True", "False"}:
+                raise CompilerError(
+                    f"Invalid boolean literal '{stripped}'. Use 'true' or 'false' (lowercase)",
+                    error_code=ErrorCode.SYNTAX_ERROR,
+                    file_path=z_file,
+                    line_num=line_num,
+                )
 
         # Build variables set: only identifiers
         for t in operands:
@@ -228,7 +254,7 @@ def parse_z_file(z_file: str) -> Tuple[list, set, Dict[Tuple[Optional[str], str]
                 t_clean = t_clean.split('[', 1)[0]
             if t_clean.endswith(':'):
                 continue
-            if t_clean in {"int", "float", "double", "string", "bool", "from", "to", "..", "mut"}:
+            if t_clean in {"int", "float", "double", "string", "bool", "from", "to", "..", "mut", "const"}:
                 continue
             if t_clean.startswith('"') and t_clean.endswith('"'):
                 continue
@@ -236,6 +262,12 @@ def parse_z_file(z_file: str) -> Tuple[list, set, Dict[Tuple[Optional[str], str]
                 continue
             if is_number(t_clean):
                 continue
+            # Filter out boolean literals
+            if t_clean in {"true", "false"}:
+                continue
+            # Reject invalid boolean literals (redundant but kept for safety)
+            if t_clean in {"True", "False"}:
+                raise CompilerError(f"Invalid boolean literal '{t_clean}'. Use 'true' or 'false' (lowercase)", error_code=ErrorCode.SYNTAX_ERROR, file_path=z_file, line_num=line_num)
             if is_identifier(t_clean) and t_clean != "main":
                 variables.add(t_clean)
 
