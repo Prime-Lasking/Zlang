@@ -36,6 +36,7 @@ class ErrorCode(Enum):
     RUNTIME_ERROR = 41
     DIVISION_BY_ZERO = 42
     OUT_OF_BOUNDS = 43
+    NUMBER_OVERFLOW = 45
     
     # System and environment errors (51-60)
     SYSTEM_ERROR = 51
