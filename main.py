@@ -8,14 +8,14 @@ import subprocess
 from pathlib import Path
 from typing import Optional, Tuple
 
-from setup_update import Colors, print_colored, is_in_path, run_setup, show_setup_message, update_z_compiler, handle_cli_setup_and_version, print_version
+from setup_update import Colors, print_colored, is_in_path, run_setup, show_setup_message, update_z_compiler, handle_cli_setup_and_version, print_version, VERSION
 
 try:
     from lexer import parse_z_file
     from optimizer import optimize_instructions
     from codegen import generate_c_code
     from errors import CompilerError, ErrorCode
-    from semantics import validate_immutability
+    from semantics import validate_const_and_types
 except ImportError:
     # If running as standalone executable, modules might not be available
     parse_z_file = None
@@ -23,7 +23,7 @@ except ImportError:
     generate_c_code = None
     CompilerError = None
     ErrorCode = None
-    validate_immutability = None
+    validate_const_and_types = None
 def format_time(seconds):
     if seconds < 0.001:  # Less than 1ms
         if seconds < 0.000001:  # Less than 1μs
@@ -38,8 +38,8 @@ def format_time(seconds):
 
 
 
-HELP_TEXT = """
-🔧 Z Compiler v0.8
+HELP_TEXT = f"""
+🔧 Z Compiler v{VERSION}
 
 SETUP/UPDATE:
     z -begin      Install Z compiler to PATH
@@ -270,25 +270,27 @@ def compile_zlang(input_path: str, output_path: str, output_format: str, compile
         optimized = optimize_instructions(instructions, validated_input_path)
         opt_time = time.time() - opt_start
         
-        # 2.5 Semantic validation (immutability enforcement)
-        validate_immutability(optimized, declarations, validated_input_path)
+        # 2.5 Semantic validation (const and type enforcement)
+        validate_const_and_types(optimized, declarations, validated_input_path)
         
         # 3. Code Generation
         gen_start = time.time()
-        c_code = generate_c_code(optimized, variables, z_file=validated_input_path)
+        c_code = generate_c_code(optimized, variables, declarations, z_file=validated_input_path)
         gen_time = time.time() - gen_start
                
         # Determine output file paths
         if output_format == 'exe':
             abs_c_file = os.path.abspath(os.path.splitext(output_path)[0] + '.c')
+            # Only add .exe extension if not already present
             if sys.platform == 'win32' and not output_path.lower().endswith('.exe'):
-                output_path += '.exe'
+                abs_output_path = os.path.abspath(output_path + '.exe')
+            else:
+                abs_output_path = os.path.abspath(output_path)
         else:
             abs_c_file = os.path.abspath(output_path)
             if not abs_c_file.lower().endswith('.c'):
                 abs_c_file += '.c'
-        
-        abs_output_path = os.path.abspath(output_path)
+            abs_output_path = abs_c_file
         
         # Write C code to file
         write_start = time.time()
@@ -330,6 +332,9 @@ def compile_zlang(input_path: str, output_path: str, output_format: str, compile
                     '-Wall', '-Wextra',
                     '-D_CRT_SECURE_NO_WARNINGS'
                 ]
+                # For Windows, ensure we're targeting the right architecture and format
+                if sys.platform == 'win32':
+                    cmd.extend(['-target', 'x86_64-windows-msvc'])
             
             # Run the compiler
             compile_start = time.time()
@@ -485,7 +490,7 @@ def parse_args(args):
 
 def check_compilation_requirements():
     """Check if all required modules are available for compilation"""
-    if any(module is None for module in [parse_z_file, optimize_instructions, generate_c_code, CompilerError, ErrorCode, validate_immutability]):
+    if any(module is None for module in [parse_z_file, optimize_instructions, generate_c_code, CompilerError, ErrorCode, validate_const_and_types]):
         print_colored("✗ Error: Compiler modules not found", Colors.RED)
         print_colored("This Z executable doesn't include the compiler components.", Colors.WHITE)
         print_colored("Please ensure all .py files are available or use a complete build.", Colors.WHITE)
