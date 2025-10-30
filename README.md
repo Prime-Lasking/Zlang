@@ -1,4 +1,4 @@
-# Z Compiler
+# Z Compiler v0.9.5
 
 🚀 The Compiler for the Z programming language.
 
