@@ -457,68 +457,83 @@ def update_z_compiler() -> bool:
 
         # Try to replace
         print_colored(f"📦 Updating at {target}", Colors.WHITE)
-        backup = target.with_suffix(target.suffix + ".bak")
+        backup = target.parent / "z.exe.bak"
+        
         try:
-            # Backup existing
+            # Remove existing backup if it exists
+            if backup.exists():
+                try:
+                    backup.unlink()
+                except Exception as e:
+                    print_colored(f"⚠️ Could not remove old backup: {e}", Colors.YELLOW)
+            
+            # Create backup of current z.exe if it exists
             if target.exists():
                 try:
                     shutil.copy2(target, backup)
-                except Exception:
-                    pass
-            # On Windows, if replacing the currently running exe, copy will fail
+                    print_colored(f"🔒 Created backup at: {backup}", Colors.CYAN)
+                except Exception as e:
+                    print_colored(f"⚠️ Could not create backup: {e}", Colors.YELLOW)
+            
+            # Try direct copy first
             try:
                 shutil.copy2(tmp_path, target)
-            except PermissionError as e:
-                # Fallback: schedule replacement via a temporary batch script with retry
+                print_colored("✓ Update completed successfully!", Colors.GREEN)
+                
+                # Clean up backup after successful update
+                try:
+                    if backup.exists():
+                        backup.unlink()
+                except Exception as e:
+                    print_colored(f"⚠️ Could not remove backup: {e}", Colors.YELLOW)
+                
+                return True
+                
+            except (PermissionError, OSError) as e:
+                # If direct copy fails, try using a batch script for Windows
                 if platform.system().lower() == "windows":
                     bat = Path(tmpdir) / "z_update.bat"
-                    # Create a more robust batch script with retry logic
+                    # Create a batch script to handle the update on next login
                     bat.write_text(
-                        f"@echo off\n"
-                        f"setlocal enabledelayedexpansion\n"
-                        f"set \"max_attempts=5\"\n"
-                        f"set \"attempt=0\"\n"
-                        f":retry\n"
-                        f"set /a \"attempt+=1\"\n"
-                        f"echo Attempt !attempt! of %max_attempts%\n"
-                        f"copy /Y \"{tmp_path}\" \"{target}\" > nul 2>&1 && (\n"
-                        f"  echo Update successful\n"
-                        f"  del \"{tmp_path}\" > nul 2>&1\n"
-                        f"  del \"%~f0\"\n"
-                        f"  exit /b 0\n"
-                        f") || (\n"
-                        f"  if !attempt! lss %max_attempts% (\n"
-                        f"    timeout /t 2 /nobreak > nul\n"
-                        f"    goto :retry\n"
-                        f"  ) else (\n"
-                        f"    echo Update failed after %max_attempts% attempts\n"
-                        f"    del \"{tmp_path}\" > nul 2>&1\n"
-                        f"    del \"%~f0\"\n"
-                        f"    exit /b 1\n"
-                        f"  )\n"
-                        f")\n",
+                        "@echo off\n"
+                        "echo Updating Z compiler...\n"
+                        "timeout /t 1 /nobreak > nul\n"
+                        f"move /Y \"{target}\" \"{backup}\" > nul 2>&1\n"
+                        f"move /Y \"{tmp_path}\" \"{target}\" > nul 2>&1\n"
+                        "if %ERRORLEVEL% EQU 0 (\n"
+                        "  echo ✓ Z updated successfully!\n"
+                        f"  if exist \"{backup}\" del /F /Q \"{backup}\" > nul 2>&1\n"
+                        ") else (\n"
+                        "  echo ✗ Update failed. Restoring backup...\n"
+                        f"  if exist \"{backup}\" move /Y \"{backup}\" \"{target}\" > nul 2>&1\n"
+                        "  exit /b 1\n"
+                        ")\n"
+                        f"del \"%~f0\"\n",
                         encoding="utf-8"
                     )
+                    
+                    # Run the batch script with elevated privileges
                     try:
-                        result = subprocess.run(["cmd", "/c", str(bat)], capture_output=True, text=True, timeout=30)
-                        if result.returncode == 0:
-                            print_colored("✓ Replacement completed successfully.", Colors.GREEN)
-                            return True
-                        else:
-                            print_colored(f"✗ Update failed after retries: {result.stderr}", Colors.RED)
-                            return False
-                    except subprocess.TimeoutExpired:
-                        print_colored("✗ Update timed out", Colors.RED)
-                        return False
+                        print_colored("🔄 Update will complete on next command prompt. Please run the same command again.", Colors.YELLOW)
+                        subprocess.Popen(f'start "" /B cmd /c "{bat}"', shell=True)
+                        return True
                     except Exception as update_error:
-                        print_colored(f"✗ Update failed: {update_error}", Colors.RED)
+                        print_colored(f"✗ Failed to schedule update: {update_error}", Colors.RED)
                         return False
                 else:
+                    # For non-Windows systems
                     print_colored(f"✗ Update failed: {e}", Colors.RED)
+                    print_colored("Please close any running instances of z and try again.", Colors.YELLOW)
                     return False
+                    
         except Exception as e:
             print_colored(f"✗ Update failed: {e}", Colors.RED)
+            # Try to restore from backup if update failed
+            if backup.exists() and not target.exists():
+                try:
+                    shutil.copy2(backup, target)
+                    print_colored("✓ Restored from backup", Colors.GREEN)
+                except Exception as restore_error:
+                    print_colored(f"⚠️ Could not restore from backup: {restore_error}", Colors.RED)
             return False
-
-    print_colored("✓ Z updated successfully!", Colors.GREEN)
     return True
