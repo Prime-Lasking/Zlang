@@ -1,4 +1,4 @@
-# Z Compiler v0.10.0
+# Z Compiler v0.9.5
 
 🚀 The Compiler for the Z programming language.
 
@@ -172,25 +172,11 @@ FN main():
 
 ---
 
-## 🆕 What's New in v0.10.0
-
-### Major Features
-- **Dynamic Arrays**: Fully dynamic arrays with automatic resizing
-- **Type Safety**: Strict type checking for array operations
-- **0-based Indexing**: Consistent array indexing starting at 0
-- **Improved Error Handling**: Better error messages for array operations
-- **Memory Management**: Automatic memory allocation and cleanup
-
-### Breaking Changes
-- Arrays are now 0-indexed (previously 1-indexed)
-- Removed fixed-size array syntax (all arrays are now dynamic)
-- Stricter type checking for array operations
 
 ## 🧠 Language Features
 
 ### Variables & Data Types
 - **Type declarations**: `int`, `float`, `double`, `bool`, `string`
-- **Array types**: `Aint`, `Adouble`, `Abool`, `Astring`
 - **Mutable variables**: `MOV int x 10` (mutable by default)
 - **Immutable constants**: `CONST int MAX_SIZE 100` (cannot be reassigned)
 - **Redeclaration protection**: Prevents accidental variable redeclaration
@@ -204,48 +190,6 @@ FN main():
 - `INC variable` - Increment variable by 1
 - `DEC variable` - Decrement variable by 1
 
-### Array Operations
-
-**Array Declaration & Initialization:**
-```z
-// Dynamic array with initial values (size is optional)
-ARR Aint numbers 1,2,3,4,5  // Creates array with 5 elements
-ARR Adouble prices 10.5,20.75,30.0  // Double array
-```
-
-**Array Operations:**
-- `PUSH array value` - Add element to end of array
-- `POP array` - Remove and return last element
-- `LEN array var` - Get array length
-- `array[index]` - Access element at index (0-based)
-
-**Example:**
-```z
-FN main():
-    // Create and initialize array
-    ARR Aint numbers 1,2,3,4,5
-    
-    // Print array
-    PRINT "Initial array:"
-    PRINT numbers
-    
-    // Add element
-    PUSH numbers 6
-    
-    // Get length
-    LEN numbers length
-    PRINT "Array length: " + length
-    
-    // Access elements
-    MOV int first numbers[0]  // 0-based indexing
-    PRINT "First element: " + first
-    
-    // Iterate through array
-    LEN numbers len
-    FOR i 0..len:
-        MOV int num numbers[i]
-        PRINT "Element " + i + ": " + num
-```
 
 ### Control Flow
 
