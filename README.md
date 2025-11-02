@@ -1,4 +1,4 @@
-# Z Compiler v0.9.5
+# Z Compiler v0.10
 
 🚀 The Compiler for the Z programming language.
 
@@ -181,6 +181,17 @@ FN main():
 - **Immutable constants**: `CONST int MAX_SIZE 100` (cannot be reassigned)
 - **Redeclaration protection**: Prevents accidental variable redeclaration
 
+### Arrays
+- **Fixed-size arrays**: `ARR Aint numbers 3 [1, 2, 3]` (capacity=3, length=3)
+- **Dynamic arrays**: `ARR Aint numbers [1, 2, 3]` (capacity=length)
+- **Empty arrays**: `ARR Aint empty []` (capacity=0, length=0)
+- **Array operations**:
+  - `PUSH array value` - Add element to end of array
+  - `POP array [variable]` - Remove and return last element (optionally store in variable)
+  - `LEN array variable` - Get array length
+- **Bounds checking**: Compile-time error if array capacity is exceeded
+- **Supported types**: `Aint`, `Afloat`, `Adouble`, `Abool`, `Astring`
+
 ### Arithmetic Operations
 - `ADD a b result` - Addition
 - `SUB a b result` - Subtraction  
@@ -241,6 +252,15 @@ FOR variable start..end:
 - **Logical operators**: `AND`, `OR`, `NOT` properly translated to C (`&&`, `||`, `!`)
 - **Discard variables**: `CALL func() _` discards return value
 - **Compile-time constants**: Division by zero and other errors caught at compile time
+
+### Error Handling
+- **Compile-time errors**: Type checking, syntax validation, array bounds checking
+- **Runtime errors**: Division by zero, array access violations
+- **Error codes**:
+  - `OUT_OF_BOUNDS` (43): Array index out of bounds or capacity exceeded
+  - `OVERFLOW` (45): Numeric overflow in arithmetic operations
+  - `UNDEFINED_SYMBOL` (21): Reference to undefined variable or function
+  - `TYPE_MISMATCH` (23): Incompatible types in operation
 
 ---
 
