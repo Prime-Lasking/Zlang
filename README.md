@@ -183,8 +183,8 @@ FN main():
 
 ### Arrays
 - **Fixed-size arrays**: `ARR Aint numbers 3 [1, 2, 3]` (capacity=3, length=3)
-- **Dynamic arrays**: `ARR Aint numbers [1, 2, 3]` (capacity=length)
-- **Empty arrays**: `ARR Aint empty []` (capacity=0, length=0)
+- **Dynamic arrays**: `ARR Aint numbers [1, 2, 3]` (capacity= unlimited length = 3)
+- **Empty arrays**: `ARR Aint empty []` (capacity=unlimited, length=0)
 - **Array operations**:
   - `PUSH array value` - Add element to end of array
   - `POP array [variable]` - Remove and return last element (optionally store in variable)
