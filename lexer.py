@@ -9,7 +9,11 @@ IDENTIFIER_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
 TOKEN_RE = re.compile(r'"[^"]*"|\S+')
 
 OPS = {"MOV", "ADD", "SUB", "MUL", "DIV", "PRINT", "READ", "MOD", "INC", "DEC", "CALL", "RET", "ERROR",
-       "FNDEF", "FN", "FOR", "WHILE", "IF", "ELSE", "ELIF", "PRINTSTR", "CONST"}
+       "FNDEF", "FN", "FOR", "WHILE", "IF", "ELSE", "ELIF", "PRINTSTR", "CONST",
+       "ARR", "LEN", "PUSH", "POP"}
+
+# Array types
+ARRAY_TYPES = {"Aint", "Afloat", "Adouble", "Abool", "Astring"}
 
 C_KEYWORDS = {
     "auto", "break", "case", "char", "const", "continue", "default",

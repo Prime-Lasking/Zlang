@@ -5,12 +5,13 @@ from errors import CompilerError, ErrorCode
 IDENTIFIER_SANITIZE_RE = re.compile(r'[^a-zA-Z0-9_]')
 IDENTIFIER_VALIDATE_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
 
+
 def format_parameters(params):
     """Format function parameters with their types, handling type declarations."""
     formatted = []
     i = 0
     while i < len(params):
-        if i + 1 < len(params) and params[i] in ["int", "double", "float", "bool","string"]:
+        if i + 1 < len(params) and params[i] in ["int", "double", "float", "bool", "string"]:
             param_type = params[i]
             param_name = IDENTIFIER_SANITIZE_RE.sub('_', params[i + 1])
             # Convert Z types to C types for parameters
@@ -22,12 +23,15 @@ def format_parameters(params):
             i += 2
         else:
             # All parameters must be typed now
-            raise CompilerError(f"Parameter {params[i]} must have explicit type", error_code=ErrorCode.TYPE_ERROR)
+            raise CompilerError(f"Parameter {params[i]} must have explicit type",
+                                error_code=ErrorCode.TYPE_ERROR)
     return formatted
+
 
 def sanitize_identifier(name):
     """Remove invalid characters from variable names."""
     return IDENTIFIER_SANITIZE_RE.sub('_', name)
+
 
 def is_number(token: str) -> bool:
     try:
@@ -36,13 +40,15 @@ def is_number(token: str) -> bool:
     except Exception:
         return False
 
+
 def sanitize_condition(cond):
     """Remove trailing colons from conditions like IF, WHILE."""
     return cond.rstrip(':')
 
+
 def add_overflow_check(prefix: str, operation: str, a: str, b: str, res_var: str, line_num: int) -> list[str]:
     """Generate C code with overflow check for arithmetic operations.
-    
+
     Args:
         prefix: Indentation prefix
         operation: The arithmetic operation ('+', '-', '*', '/', '%')
@@ -50,7 +56,7 @@ def add_overflow_check(prefix: str, operation: str, a: str, b: str, res_var: str
         b: Right operand
         res_var: Result variable name
         line_num: Line number for error reporting
-        
+
     Returns:
         List of C code lines with overflow checking
     """
@@ -60,7 +66,8 @@ def add_overflow_check(prefix: str, operation: str, a: str, b: str, res_var: str
         lines.append(f"{prefix}{{")
         lines.append(f"{prefix}    long long _temp = (long long){a} {operation} (long long){b};")
         lines.append(f"{prefix}    if (_temp > INT_MAX || _temp < INT_MIN) {{")
-        lines.append(f"{prefix}        error_exit({ErrorCode.NUMBER_OVERFLOW.value}, \"Integer overflow in {operation} operation at line {line_num}\");")
+        lines.append(f"{prefix}        error_exit({ErrorCode.NUMBER_OVERFLOW.value}, "
+                     f"\"Integer overflow in {operation} operation at line {line_num}\");")
         lines.append(f"{prefix}    }}")
         lines.append(f"{prefix}    {res_var} = {a} {operation} {b};")
         lines.append(f"{prefix}}}")
@@ -68,6 +75,7 @@ def add_overflow_check(prefix: str, operation: str, a: str, b: str, res_var: str
         # For / and % we just do the operation directly
         lines.append(f"{prefix}{res_var} = {a} {operation} {b};")
     return lines
+
 
 def translate_logical_operators(condition):
     """Translate Z logical operators to C logical operators."""
@@ -79,8 +87,8 @@ def translate_logical_operators(condition):
     # Handle cases where operators might be at the beginning or end
     condition = condition.replace('AND ', '&& ')
     condition = condition.replace(' OR', ' ||')
-    condition = condition.replace('OR ', '|| ')
-    condition = condition.replace(' NOT', ' !')
+    condition = condition.replace(' OR', ' ||')
+    condition = condition.replace('NOT ', '! ')
     condition = condition.replace('NOT ', '! ')
 
     # Handle standalone operators (less common but possible)
@@ -90,8 +98,8 @@ def translate_logical_operators(condition):
     condition = condition.replace('OR', '||')
     condition = condition.replace(' NOT', ' !')
     condition = condition.replace('NOT', '!')
-
     return condition
+
 
 def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
     """Generate compilable C code from parsed ZLang instructions."""
@@ -99,11 +107,116 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
         "#define _CRT_SECURE_NO_WARNINGS",
         "#include <stdio.h>",
         "#include <stdlib.h>",
-        "#include <stdbool.h>",
         "#include <string.h>",
+        "#include <stdbool.h>",
         "#include <math.h>",
+        "#include <limits.h>",
         "",
-        "// Built-in helpers",
+        "// Array structure",
+        "typedef struct {",
+        "    void* data;        // Pointer to array data",
+        "    size_t size;       // Current number of elements",
+        "    size_t capacity;   // Allocated capacity",
+        "    size_t elem_size;  // Size of each element",
+        "    char type[10];     // Type of elements",
+        "} Array;",
+        "",
+        "// Array functions implementation",
+        "Array* array_create(size_t elem_size, const char* type) {",
+        "    Array* arr = (Array*)malloc(sizeof(Array));",
+        "    if (!arr) { fprintf(stderr, \"Memory allocation failed\\n\"); exit(1); }",
+        "    arr->size = 0;",
+        "    arr->capacity = 4;",
+        "    arr->elem_size = elem_size;",
+        "    strncpy(arr->type, type, sizeof(arr->type) - 1);",
+        "    arr->type[sizeof(arr->type) - 1] = '\\0';",
+        "    arr->data = malloc(arr->capacity * elem_size);",
+        "    if (!arr->data) { fprintf(stderr, \"Memory allocation failed\\n\"); exit(1); }",
+        "    return arr;",
+        "}",
+        "",
+        "void array_free(Array* arr) {",
+        "    if (arr) {",
+        "        if (strcmp(arr->type, \"string\") == 0) {",
+        "            for (size_t i = 0; i < arr->size; i++) {",
+        "                free(*((char**)arr->data + i));",
+        "            }",
+        "        }",
+        "        free(arr->data);",
+        "        free(arr);",
+        "    }",
+        "}",
+        "",
+        "void array_resize(Array* arr) {",
+        "    if (arr->capacity > SIZE_MAX / 2) { ",
+        "        fprintf(stderr, \"Error: Array too large\\n\"); ",
+        "        exit(1); ",
+        "    }",
+        "    arr->capacity *= 2;",
+        "    void* new_data = realloc(arr->data, arr->capacity * arr->elem_size);",
+        "    if (!new_data) { ",
+        "        fprintf(stderr, \"Memory reallocation failed\\n\"); ",
+        "        exit(1); ",
+        "    }",
+        "    arr->data = new_data;",
+        "}",
+        "",
+        "void array_push(Array* arr, const void* value) {",
+        "    if (arr->size >= arr->capacity) {",
+        "        array_resize(arr);",
+        "    }",
+        "    memcpy((char*)arr->data + arr->size * arr->elem_size, value, arr->elem_size);",
+        "    arr->size++;",
+        "}",
+        "",
+        "void array_pop(Array* arr, void* out) {",
+        "    if (arr->size == 0) {",
+        "        fprintf(stderr, \"Error: Cannot pop from empty array\\n\");",
+        "        exit(1);",
+        "    }",
+        "    arr->size--;",
+        "    memcpy(out, (char*)arr->data + arr->size * arr->elem_size, arr->elem_size);",
+        "}",
+        "",
+        "size_t array_length(const Array* arr) {",
+        "    if (!arr) { fprintf(stderr, \"Error: Null array\\n\"); exit(1); }",
+        "    return arr->size;",
+        "}",
+        "",
+        "void* array_get(Array* arr, size_t index) {",
+        "    if (!arr) { fprintf(stderr, \"Error: Null array\\n\"); exit(1); }",
+        "    if (index >= arr->size) {",
+        "        fprintf(stderr, \"Error: Array index %zu out of bounds (size: %zu)\\n\", index, arr->size);",
+        "        exit(1);",
+        "    }",
+        "    return (char*)arr->data + index * arr->elem_size;",
+        "}",
+        "",
+        "// Print array function",
+        "void print_array(Array* arr) {",
+        "    if (!arr) {",
+        "        printf(\"NULL\\n\");",
+        "        return;",
+        "    }",
+        "    printf(\"[\");",
+        "    for (size_t i = 0; i < arr->size; i++) {",
+        "        if (i > 0) printf(\", \");",
+        "        if (strcmp(arr->type, \"int\") == 0) {",
+        "            printf(\"%d\", *((int*)array_get(arr, i)));",
+        "        } else if (strcmp(arr->type, \"float\") == 0) {",
+        "            printf(\"%f\", *((float*)array_get(arr, i)));",
+        "        } else if (strcmp(arr->type, \"double\") == 0) {",
+        "            printf(\"%g\", *((double*)array_get(arr, i)));",
+        "        } else if (strcmp(arr->type, \"bool\") == 0) {",
+        "            printf(\"%s\", *((bool*)array_get(arr, i)) ? \"true\" : \"false\");",
+        "        } else if (strcmp(arr->type, \"string\") == 0) {",
+        "            printf(\"\\\"%s\\\"\", *((const char**)array_get(arr, i)));",
+        "        }",
+        "    }",
+        "    printf(\"]\\n\");",
+        "}",
+        "",
+        "// Helper functions",
         "void print_double(double d) { printf(\"%g\\n\", d); }",
         "void print_int(int i) { printf(\"%d\\n\", i); }",
         "void print_bool(bool b) { printf(\"%s\\n\", b ? \"true\" : \"false\"); }",
@@ -129,9 +242,9 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
         "    if (scanf(\"%1023s\", buffer) != 1) error_exit(1, \"Failed to read string\");",
         "    return buffer;",
         "}",
-        ""
+        "",
     ]
-    
+
     # Cache for sanitized identifiers to avoid redundant processing
     sanitized_cache = {}
 
@@ -504,32 +617,36 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
         if op == "PRINT":
             operand = operands[0]
             
-            # Determine the type of the operand and call appropriate print function
-            if operand in variable_types:
-                var_type = variable_types[operand]
-                if var_type == "int":
-                    c_lines.append(f"{prefix}print_int({operand});")
-                elif var_type == "bool":
-                    c_lines.append(f"{prefix}print_bool({operand});")
-                elif var_type == "string":
-                    c_lines.append(f"{prefix}print_str({operand});")
-                else:  # double or default
-                    c_lines.append(f"{prefix}print_double({operand});")
-            elif operand.startswith('"') and operand.endswith('"'):
-                # String literal
-                c_lines.append(f"{prefix}print_str({operand});")
-            elif operand in ["true", "false"]:
-                # Boolean literal
-                c_lines.append(f"{prefix}print_bool({operand});")
-            elif is_number(operand):
-                # Numeric literal - check if it looks like an integer
-                if '.' in operand or 'e' in operand.lower():
-                    c_lines.append(f"{prefix}print_double({operand});")
-                else:
-                    c_lines.append(f"{prefix}print_int({operand});")
+            # Check if this is an array print operation (PRINTARR)
+            if op == "PRINTARR" or (operand in variable_types and variable_types[operand] in ["Aint", "Afloat", "Adouble", "Abool", "Astring"]):
+                c_lines.append(f"{prefix}print_array({operand});")
             else:
-                # Default to double for variables/expressions without explicit type
-                c_lines.append(f"{prefix}print_double({operand});")
+                # For non-array values, use the appropriate print function
+                if operand in variable_types:
+                    var_type = variable_types[operand]
+                    if var_type == "int":
+                        c_lines.append(f"{prefix}print_int({operand});")
+                    elif var_type == "bool":
+                        c_lines.append(f"{prefix}print_bool({operand});")
+                    elif var_type == "string":
+                        c_lines.append(f"{prefix}print_str({operand});")
+                    else:  # double, float, or default
+                        c_lines.append(f"{prefix}print_double({operand});")
+                elif operand.startswith('"') and operand.endswith('"'):
+                    # String literal
+                    c_lines.append(f"{prefix}print_str({operand});")
+                elif operand in ["true", "false"]:
+                    # Boolean literal
+                    c_lines.append(f"{prefix}print_bool({operand});")
+                elif is_number(operand):
+                    # Numeric literal - check if it looks like an integer
+                    if '.' in operand or 'e' in operand.lower():
+                        c_lines.append(f"{prefix}print_double({operand});")
+                    else:
+                        c_lines.append(f"{prefix}print_int({operand});")
+                else:
+                    # Default to double for variables/expressions without explicit type
+                    c_lines.append(f"{prefix}print_double({operand});")
             continue
         if op == "ERROR":
             msg = " ".join(operands)
@@ -556,7 +673,169 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
                 ret_var = sanitized_cache[ret_var_name]
                 c_lines.append(f"{prefix}{ret_var} = {func_name}({args});")
             continue
+        if op == "ARR":
+            if len(operands) >= 2:
+                arr_type = operands[0]
+                arr_name = operands[1]
+                
+                # Sanitize the array name
+                if arr_name not in sanitized_cache:
+                    sanitized_cache[arr_name] = sanitize_identifier(arr_name)
+                safe_name = sanitized_cache[arr_name]
 
+                # Map Z array types to C types
+                type_map = {
+                    "Aint": ("int", "int"),
+                    "Afloat": ("float", "float"),
+                    "Adouble": ("double", "double"),
+                    "Abool": ("bool", "bool"),
+                    "Astring": ("const char*", "string")
+                }
+
+                if arr_type not in type_map:
+                    raise CompilerError(f"Unknown array type: {arr_type}", line_num,
+                                     ErrorCode.INVALID_TYPE, z_file)
+
+                c_type, arr_type_name = type_map[arr_type]
+
+                # Handle array initialization with values if provided
+                if len(operands) > 2:
+                    # Check if the third operand is a number (capacity) or starts with '[' (values)
+                    if operands[2].isdigit() and len(operands) > 3 and '[' in operands[3]:
+                        # Format: ARR Aint arr 3 [1,2,3]
+                        capacity = operands[2]
+                        values_str = ' '.join(operands[3:])
+                    else:
+                        # Format: ARR Aint arr [1,2,3] or ARR Aint arr 1,2,3
+                        capacity = '4'  # Default initial capacity
+                        values_str = ' '.join(operands[2:])
+                    
+                    # Check for [ ] syntax
+                    if '[' in values_str and ']' in values_str:
+                        # Extract content between brackets
+                        start = values_str.find('[') + 1
+                        end = values_str.rfind(']')
+                        values_str = values_str[start:end].strip()
+                        values = [v.strip() for v in values_str.split(',') if v.strip()]
+                    else:
+                        # Old style: comma-separated values without brackets
+                        values = [v.strip() for v in values_str.split(',') if v.strip()]
+                    
+                    # Check if we have more values than capacity
+                    if 'capacity' in locals() and len(values) > int(capacity):
+                        raise CompilerError(
+                            f"Array '{arr_name}' has {len(values)} elements but capacity is only {capacity}",
+                            line_num,
+                            ErrorCode.OVERFLOW,
+                            z_file
+                        )
+                    
+                    # Create the array with specified or default capacity
+                    c_lines.append(f"{prefix}Array* {safe_name} = array_create(sizeof({c_type}), \"{arr_type_name}\");")
+                    
+                    # Add values if any
+                    for i, val in enumerate(values):
+                        # Add bounds check for each element if capacity is specified
+                        if 'capacity' in locals() and i >= int(capacity):
+                            break
+                        c_lines.append(f"{prefix}{{\n{prefix}    {c_type} _val = {val};\n{prefix}    array_push({safe_name}, &_val);\n{prefix}}}")
+                    
+                    # If we had to truncate due to capacity, show a warning
+                    if 'capacity' in locals() and len(values) > int(capacity):
+                        c_lines.append(f"{prefix}// Warning: Array '{arr_name}' truncated to {capacity} elements (capacity exceeded)")
+                else:  # Empty array with no values
+                    # Check if capacity is specified (ARR Aint arr 10)
+                    if len(operands) == 3 and operands[2].isdigit():
+                        capacity = operands[2]
+                        c_lines.append(f"{prefix}Array* {safe_name} = array_create_with_capacity(sizeof({c_type}), \"{arr_type_name}\", {capacity});")
+                    else:
+                        c_lines.append(f"{prefix}Array* {safe_name} = array_create(sizeof({c_type}), \"{arr_type_name}\");")
+                
+                # Track array type for bounds checking
+                variable_types[arr_name] = arr_type
+            continue
+            
+        # Array operations
+        if op == "PUSH":
+            if len(operands) >= 2:
+                arr_name = operands[0]
+                value = " ".join(operands[1:])
+                if arr_name not in variable_types:
+                    raise CompilerError(f"Undefined array: {arr_name}", line_num, 
+                                     ErrorCode.UNDEFINED_SYMBOL, z_file)
+                
+                # Get the array type from the variable_types dictionary
+                arr_type = variable_types[arr_name]
+                # Map array type to C type (remove 'A' prefix)
+                type_map = {
+                    "Aint": "int",
+                    "Afloat": "float",
+                    "Adouble": "double",
+                    "Abool": "bool",
+                    "Astring": "const char*"
+                }
+                c_type = type_map.get(arr_type, "double")  # Default to double if type not found
+                
+                # Special handling for string literals in string arrays
+                if arr_type == "Astring" and value.startswith('"') and value.endswith('"'):
+                    # For string literals, we need to strdup them
+                    c_lines.append(f"{prefix}{{\n{prefix}    {c_type} _val = strdup({value});\n{prefix}    array_push({arr_name}, &_val);\n{prefix}}}")
+                else:
+                    c_lines.append(f"{prefix}{{\n{prefix}    {c_type} _val = {value};\n{prefix}    array_push({arr_name}, &_val);\n{prefix}}}")
+            continue
+            
+        if op == "POP":
+            if len(operands) >= 1:
+                arr_name = operands[0]
+                if arr_name not in variable_types:
+                    raise CompilerError(f"Undefined array: {arr_name}", line_num,
+                                     ErrorCode.UNDEFINED_SYMBOL, z_file)
+                
+                # Get the array type from the variable_types dictionary
+                arr_type = variable_types[arr_name]
+                # Map array type to C type (remove 'A' prefix)
+                type_map = {
+                    "Aint": "int",
+                    "Afloat": "float",
+                    "Adouble": "double",
+                    "Abool": "bool",
+                    "Astring": "char*"
+                }
+                c_type = type_map.get(arr_type, "double")  # Default to double if type not found
+                
+                if len(operands) == 2:
+                    # POP into a variable
+                    var_name = operands[1]
+                    c_lines.append(f"{prefix}{{\n{prefix}    {c_type} _val;\n{prefix}    array_pop({arr_name}, &_val);")
+                    
+                    # Special handling for string arrays
+                    if arr_type == "Astring":
+                        c_lines.append(f"{prefix}    {var_name} = strdup(_val);")
+                        c_lines.append(f"{prefix}    free(_val);")
+                    else:
+                        c_lines.append(f"{prefix}    {var_name} = _val;")
+                    c_lines.append(f"{prefix}}}")
+                else:
+                    # Just remove the last element
+                    c_lines.append(f"{prefix}{{\n{prefix}    {c_type} _val;\n{prefix}    array_pop({arr_name}, &_val);")
+                    # Free the string if it's a string array
+                    if arr_type == "Astring":
+                        c_lines.append(f"{prefix}    free(_val);")
+                    c_lines.append(f"{prefix}}}")
+            continue
+            
+        if op == "LEN":
+            if len(operands) == 2:
+                arr_name = operands[0]
+                var_name = operands[1]
+                c_lines.append(f"{prefix}{var_name} = array_length({arr_name});")
+            continue
+            
+        if op == "PRINTARR":
+            if len(operands) == 1:
+                arr_name = operands[0]
+                c_lines.append(f"{prefix}print_array({arr_name});")
+            continue
         if op == "READ":
             if len(operands) == 3 and operands[0] in ["int", "double", "float", "string"]:
                 # Enhanced READ: READ <type> <prompt> <variable>
