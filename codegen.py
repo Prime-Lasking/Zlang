@@ -66,7 +66,7 @@ def add_overflow_check(prefix: str, operation: str, a: str, b: str, res_var: str
         lines.append(f"{prefix}{{")
         lines.append(f"{prefix}    long long _temp = (long long){a} {operation} (long long){b};")
         lines.append(f"{prefix}    if (_temp > INT_MAX || _temp < INT_MIN) {{")
-        lines.append(f"{prefix}        error_exit({ErrorCode.NUMBER_OVERFLOW.value}, "
+        lines.append(f"{prefix}        error_exit({ErrorCode.OVERFLOW.value}, "
                      f"\"Integer overflow in {operation} operation at line {line_num}\");")
         lines.append(f"{prefix}    }}")
         lines.append(f"{prefix}    {res_var} = {a} {operation} {b};")

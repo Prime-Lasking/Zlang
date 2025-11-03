@@ -65,7 +65,10 @@ class SemanticAnalyzer:
         if op in HANDLERS:
             handler_name = HANDLERS[op]
             if hasattr(self, handler_name):
-                if op in ["PTR", "PTR_GET", "PTR_SET"]:
+                # Special handling for operations that need the op name
+                if op in ["ADD", "SUB", "MUL", "DIV", "MOD", "INC", "DEC", 
+                         "PTR", "PTR_GET", "PTR_SET", "IF", "ELIF", "ELSE", 
+                         "FOR", "WHILE", "PUSH", "POP"]:
                     getattr(self, handler_name)(op, operands, line_num)
                 else:
                     getattr(self, handler_name)(operands, line_num)
@@ -73,7 +76,12 @@ class SemanticAnalyzer:
             # Fallback to the old handler naming convention for backward compatibility
             handler_name = f"_handle_{op.lower()}"
             if hasattr(self, handler_name):
-                getattr(self, handler_name)(operands, line_num)
+                # Check if the handler expects the op name as first argument
+                handler = getattr(self, handler_name)
+                if handler.__code__.co_argcount == 4:  # self + 3 args
+                    handler(op, operands, line_num)
+                else:
+                    handler(operands, line_num)
         
         # Check for returns at the end of functions
         if op == "RET" and self.return_type and self.return_type != "void":
