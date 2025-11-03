@@ -280,7 +280,7 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
     function_params = {}
     function_names = set()
     local_vars = {}
-
+    normal_types = ['string','int','bool','double','float']
     current_function = None
     func_depth = 0
     for op, operands, line_num in instructions:
@@ -414,17 +414,10 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
                 var_type = get_var_type(None, var)
                 c_type = get_c_type(var_type)
                 const_prefix = "const " if is_const(None, var) else ""
-
-                if var_type == "string":
-                    init_value = 'NULL'
-                elif var_type == "int":
-                    init_value = '0'
-                elif var_type == "bool":
-                    init_value = 'false'
+                if c_type in normal_types:
+                    global_var_lines.append(f"{const_prefix}{c_type} {var_clean};")
                 else:
-                    init_value = '0.0'
-
-                global_var_lines.append(f"{const_prefix}{c_type} {var_clean} = {init_value};")
+                    continue
 
         if global_var_lines:
             c_lines.append("// Global variables")
@@ -543,22 +536,26 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
                 else:
                     # No value provided, use type-appropriate default
                     var_type = operands[0]
-                    if var_type == "string":
+                    if var_type in normal_types:
+                     if var_type == "string":
                         expr = 'NULL'
-                    elif var_type == "int":
+                     elif var_type == "int":
                         expr = '0'
-                    elif var_type == "bool":
+                     elif var_type == "bool":
                         expr = 'false'
-                    else:  # double, float
+                     elif var_type == "double":
+                        expr = '0.0'
+                     elif var_type == "float":
                         expr = '0.0'
                 # Generate only assignment (declaration is already at top of function)
-                c_lines.append(f"{prefix}{sanitized_cache[dest]} = {expr}; ")
+                c_lines.append(f"{prefix}{var_type} {sanitized_cache[dest]} = {expr}; ")
             elif len(operands) == 2:
                 # Assignment: dest expr
                 dest, expr = operands
+                var_type = operands[0]
                 if dest not in sanitized_cache:
                     sanitized_cache[dest] = sanitize_identifier(dest)
-                c_lines.append(f"{prefix}{sanitized_cache[dest]} = {expr}; ")
+                c_lines.append(f"{prefix}{var_type} {sanitized_cache[dest]} = {expr}; ")
             continue
 
         if op == "CONST":
