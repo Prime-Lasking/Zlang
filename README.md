@@ -1,4 +1,4 @@
-# Z Compiler v0.10
+# Z Compiler v0.11
 
 🚀 The Compiler for the Z programming language.
 
@@ -178,6 +178,24 @@ FN main():
 ### Variables & Data Types
 - **Type declarations**: `int`, `float`, `double`, `bool`, `string`
 - **Mutable variables**: `MOV int x 10` (mutable by default)
+
+### Pointers & Memory
+- **Pointer declaration**: `PTR int ptr x` (creates a pointer to variable `x`)
+- **Printing pointers**: `PRINT ptr` (prints the memory address in hexadecimal)
+- **Dereferencing**: `PRINT *ptr` (prints the value at the pointer's address)
+- **Type safety**: Compiler enforces type safety for pointer operations
+
+#### Pointer Example
+```z
+FN main():
+    MOV int x 42
+    PTR int ptr x  # Create a pointer to x
+    
+    PRINT x     # Prints: 42
+    PRINT ptr   # Prints the memory address of x (e.g., 0x7ffd12345678)
+    PRINT *ptr  # Prints: 42 (dereferences the pointer)
+    
+```
 - **Immutable constants**: `CONST int MAX_SIZE 100` (cannot be reassigned)
 - **Redeclaration protection**: Prevents accidental variable redeclaration
 

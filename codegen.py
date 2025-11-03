@@ -103,6 +103,9 @@ def translate_logical_operators(condition):
 
 def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
     """Generate compilable C code from parsed ZLang instructions."""
+    # Track pointer variables to avoid double declaration
+    pointer_vars = set()
+    
     c_lines = [
         "#define _CRT_SECURE_NO_WARNINGS",
         "#include <stdio.h>",
@@ -257,10 +260,13 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
         return False
 
     # Helper to get C type from Z type
+        # Helper: map Z type → C type
     def get_c_type(z_type):
+        if isinstance(z_type, str) and z_type.endswith('*'):
+            return z_type  # already a pointer type (e.g., int*, double*)
         if z_type == "string":
             return "const char*"
-        return z_type  # int, double, bool, float map directly to C
+        return z_type
 
     # Helper to get variable type
     def get_var_type(scope, name):
@@ -527,35 +533,74 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
 
         if op == "MOV":
             if len(operands) >= 2 and operands[0] in ["int", "float", "double", "string", "bool"]:
+                var_type = operands[0]
                 dest = operands[1]
                 if dest not in sanitized_cache:
                     sanitized_cache[dest] = sanitize_identifier(dest)
+                dest_safe = sanitized_cache[dest]
+                
                 # Check if a value was provided
                 if len(operands) > 2:
                     expr = " ".join(operands[2:])
                 else:
                     # No value provided, use type-appropriate default
-                    var_type = operands[0]
-                    if var_type in normal_types:
-                     if var_type == "string":
+                    if var_type == "string":
                         expr = 'NULL'
-                     elif var_type == "int":
+                    elif var_type == "int":
                         expr = '0'
-                     elif var_type == "bool":
+                    elif var_type == "bool":
                         expr = 'false'
-                     elif var_type == "double":
+                    elif var_type in ["double", "float"]:
                         expr = '0.0'
-                     elif var_type == "float":
-                        expr = '0.0'
-                # Generate only assignment (declaration is already at top of function)
-                c_lines.append(f"{prefix}{var_type} {sanitized_cache[dest]} = {expr}; ")
+                
+                # Check if this is a string literal
+                is_string_literal = expr.startswith('"') and expr.endswith('"')
+                
+                # Check if this is a re-declaration
+                is_redeclaration = any(
+                    line.strip().startswith(f"{var_type} {dest_safe} =") or 
+                    line.strip().startswith(f"const char* {dest_safe} =") 
+                    for line in c_lines
+                )
+                
+                # Generate appropriate code based on type and declaration status
+                if is_string_literal:
+                    if not is_redeclaration:
+                        c_lines.append(f'{prefix}const char* {dest_safe} = {expr};')
+                    else:
+                        c_lines.append(f'{prefix}{dest_safe} = {expr};')
+                else:
+                    if not is_redeclaration:
+                        c_lines.append(f'{prefix}{var_type} {dest_safe} = {expr};')
+                    else:
+                        c_lines.append(f'{prefix}{dest_safe} = {expr};')
+                        
+                # Track the variable type for future reference
+                if dest_safe not in variable_types:
+                    variable_types[dest_safe] = var_type
+                    
             elif len(operands) == 2:
-                # Assignment: dest expr
+                # Assignment: dest = expr
                 dest, expr = operands
-                var_type = operands[0]
                 if dest not in sanitized_cache:
                     sanitized_cache[dest] = sanitize_identifier(dest)
-                c_lines.append(f"{prefix}{var_type} {sanitized_cache[dest]} = {expr}; ")
+                dest_safe = sanitized_cache[dest]
+                
+                # Check if this is a re-declaration
+                is_redeclaration = any(
+                    line.strip().startswith(f"{dest_safe} =") or 
+                    line.strip().startswith(f"int {dest_safe} =") or
+                    line.strip().startswith(f"double {dest_safe} =") or
+                    line.strip().startswith(f"const char* {dest_safe} =")
+                    for line in c_lines
+                )
+                
+                if not is_redeclaration and dest_safe not in variable_types:
+                    # If we don't know the type, default to int
+                    c_lines.append(f'{prefix}int {dest_safe} = {expr};')
+                    variable_types[dest_safe] = 'int'
+                else:
+                    c_lines.append(f'{prefix}{dest_safe} = {expr};')
             continue
 
         if op == "CONST":
@@ -644,10 +689,30 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
                     elif arr_type == "Astring":
                         c_lines.append(f"{prefix}printf(\"%s\\n\", *((const char**)array_get({arr_name}, {idx})));")
             else:
-                # Use printf directly with format specifier based on type
-                if operand in variable_types:
+                # Check for pointer dereference (e.g., *ptr)
+                if operand.startswith('*'):
+                    var_name = operand[1:]
+                    if var_name in variable_types:
+                        var_type = variable_types[var_name].rstrip('*')  # Get the base type
+                        if var_type == "int":
+                            c_lines.append(f"{prefix}printf(\"%d\\n\", *{var_name});")
+                        elif var_type == "bool":
+                            c_lines.append(f"{prefix}printf(\"%s\\n\", *{var_name} ? \"true\" : \"false\");")
+                        elif var_type == "string":
+                            c_lines.append(f"{prefix}printf(\"%s\\n\", *{var_name});")
+                        else:  # double, float, or default
+                            c_lines.append(f"{prefix}printf(\"%g\\n\", (double)*{var_name});")
+                    else:
+                        # Default to int* if type is unknown
+                        c_lines.append(f"{prefix}printf(\"%d\\n\", *{var_name});")
+                # Regular variable access
+                elif operand in variable_types:
                     var_type = variable_types[operand]
-                    if var_type == "int":
+                    # Check if this is a pointer type
+                    if var_type.endswith('*'):
+                        # Print the address the pointer is pointing to
+                        c_lines.append(f"{prefix}printf(\"%p\\n\", (void*){operand});")
+                    elif var_type == "int":
                         c_lines.append(f"{prefix}printf(\"%d\\n\", {operand});")
                     elif var_type == "bool":
                         c_lines.append(f"{prefix}printf(\"%s\\n\", {operand} ? \"true\" : \"false\");")
@@ -677,7 +742,38 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
             c_lines.append(f"{prefix}error_exit(1, \"{msg}\");")
             continue
         if op == "RET":
-            c_lines.append(f"{prefix}return {operands[0] if operands else '0'};")
+            ret_val = operands[0] if operands else '0'
+            c_lines.append(f"{prefix}return {ret_val};")
+            continue
+
+        if op == "PTR":
+            # PTR <type> <ptr_name> <target_var>
+            if len(operands) == 3:
+                type_name, ptr_name, target_var = operands
+                
+                # Sanitize names for emitted C
+                if ptr_name not in sanitized_cache:
+                    sanitized_cache[ptr_name] = sanitize_identifier(ptr_name)
+                if target_var not in sanitized_cache:
+                    sanitized_cache[target_var] = sanitize_identifier(target_var)
+                    
+                ptr_safe = sanitized_cache[ptr_name]
+                var_safe = sanitized_cache[target_var]
+                
+                # Add to pointer variables set
+                pointer_vars.add(ptr_safe)
+                
+                # Check if this is a re-declaration
+                is_redeclaration = any(line.strip().startswith(f"{type_name}* {ptr_safe} =") 
+                                     for line in c_lines)
+                
+                # Emit pointer declaration and initialization
+                if not is_redeclaration:
+                    c_lines.append(f"{prefix}{type_name}* {ptr_safe} = &{var_safe};")
+
+                # Ensure type-tracking matches sanitized name usage later
+                variable_types[ptr_safe] = f"{type_name}*"
+
             continue
 
         if op == "CALL":

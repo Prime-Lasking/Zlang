@@ -61,10 +61,19 @@ class SemanticAnalyzer:
             self._handle_loop_end()
             return
         
-        # Process other instructions
-        handler_name = f"_handle_{op.lower()}"
-        if hasattr(self, handler_name):
-            getattr(self, handler_name)(operands, line_num)
+        # Process other instructions using the HANDLERS dictionary
+        if op in HANDLERS:
+            handler_name = HANDLERS[op]
+            if hasattr(self, handler_name):
+                if op in ["PTR", "PTR_GET", "PTR_SET"]:
+                    getattr(self, handler_name)(op, operands, line_num)
+                else:
+                    getattr(self, handler_name)(operands, line_num)
+        else:
+            # Fallback to the old handler naming convention for backward compatibility
+            handler_name = f"_handle_{op.lower()}"
+            if hasattr(self, handler_name):
+                getattr(self, handler_name)(operands, line_num)
         
         # Check for returns at the end of functions
         if op == "RET" and self.return_type and self.return_type != "void":
@@ -199,33 +208,85 @@ class SemanticAnalyzer:
             if value_type:
                 self._check_type_compatibility(dest, value_type, line_num)
     
+    def _handle_pointer_operations(self, op: str, operands: List[str], line_num: int) -> None:
+        """Handle pointer operations (PTR, PTR_GET, PTR_SET)."""
+        if op == "PTR":
+            # PTR <type> <ptr_name> <target_var>
+            if len(operands) != 3:
+                self._error("PTR operation requires 3 operands: type, pointer_name, target_variable",
+                          line_num, ErrorCode.SYNTAX_ERROR)
+                return
+                
+            type_name, ptr_name, target_var = operands
+            
+            # Check if type is valid
+            if type_name not in types_set:
+                self._error(f"Invalid type '{type_name}' for pointer", line_num, ErrorCode.INVALID_TYPE)
+                return
+                
+            # Check if target variable exists
+            self._check_variable_exists(target_var, line_num)
+            
+            # Add pointer to declarations with type "<type>*"
+            scope = self.current_function
+            self.declarations[(scope, ptr_name)] = {
+                'mutable': True,
+                'type': f"{type_name}*",
+                'line': line_num
+            }
+    
     def _handle_arithmetic(self, op: str, operands: List[str], line_num: int) -> None:
         """Handle arithmetic operations (ADD, SUB, MUL, DIV, MOD)."""
         if len(operands) != 3:
             self._error(f"{op} requires exactly 3 operands", line_num, ErrorCode.SYNTAX_ERROR)
             
         dest = operands[2]
-        self._check_variable_exists(dest, line_num)
-        self._check_const_assignment(dest, line_num)
         
+        # Handle pointer dereferencing in destination
+        if dest.startswith('*'):
+            ptr_name = dest[1:]
+            self._check_variable_exists(ptr_name, line_num)
+            # Check if it's actually a pointer
+            decl = self._get_decl(ptr_name)
+            if not decl or not decl['type'].endswith('*'):
+                self._error(f"Cannot dereference non-pointer variable '{ptr_name}'", 
+                          line_num, ErrorCode.TYPE_MISMATCH)
+            # Get the base type (without the pointer)
+            dest_type = decl['type'].rstrip('*')
+        else:
+            self._check_variable_exists(dest, line_num)
+            self._check_const_assignment(dest, line_num)
+            dest_type = self._get_type(dest)
+        
+        # Check if destination type is numeric
+        if dest_type not in {"int", "float", "double"}:
+            self._error(
+                f"{op} destination must be a numeric type, got {dest_type}",
+                line_num,
+                ErrorCode.TYPE_MISMATCH
+            )
+            
         # Check operand types
         for i in range(2):
-            op_type = self._infer_type(operands[i])
+            # Handle pointer dereferencing in operands
+            if operands[i].startswith('*'):
+                ptr_name = operands[i][1:]
+                self._check_variable_exists(ptr_name, line_num)
+                # Check if it's actually a pointer
+                decl = self._get_decl(ptr_name)
+                if not decl or not decl['type'].endswith('*'):
+                    self._error(f"Cannot dereference non-pointer variable '{ptr_name}'", 
+                              line_num, ErrorCode.TYPE_MISMATCH)
+                op_type = decl['type'].rstrip('*')
+            else:
+                op_type = self._infer_type(operands[i])
+                
             if op_type and op_type not in {"int", "float", "double"}:
                 self._error(
                     f"{op} operation requires numeric operands, got {op_type}",
                     line_num,
                     ErrorCode.TYPE_MISMATCH
                 )
-        
-        # Check destination type
-        dest_type = self._get_type(dest)
-        if dest_type and dest_type not in {"int", "float", "double"}:
-            self._error(
-                f"{op} destination must be a numeric type, got {dest_type}",
-                line_num,
-                ErrorCode.TYPE_MISMATCH
-            )
     
     def _handle_inc_dec(self, op: str, operands: List[str], line_num: int) -> None:
         """Handle increment/decrement operations (INC, DEC)."""
@@ -391,9 +452,20 @@ class SemanticAnalyzer:
             self._error("PRINT requires at least one argument", line_num, ErrorCode.SYNTAX_ERROR)
             return
             
-        # For PRINT, we just validate the variable exists
+        # For PRINT, validate the variable exists
         for var in operands:
-            if not self._is_literal(var):
+            # Check for pointer dereference (e.g., *ptr)
+            if var.startswith('*'):
+                ptr_name = var[1:]
+                # Check if the pointer exists
+                self._check_variable_exists(ptr_name, line_num)
+                # Check if it's actually a pointer
+                decl = self._get_decl(ptr_name)
+                if decl and not decl['type'].endswith('*'):
+                    self._error(f"Cannot dereference non-pointer variable '{ptr_name}'", 
+                              line_num, ErrorCode.TYPE_MISMATCH)
+            # Regular variable
+            elif not self._is_literal(var):
                 self._check_variable_exists(var, line_num)
     
     def _handle_if_elif_else(self, op: str, operands: List[str], line_num: int) -> None:
@@ -455,6 +527,10 @@ class SemanticAnalyzer:
 HANDLERS = {
     # Variable operations
     "MOV": "_handle_mov",
+    # Pointer operations
+    "PTR": "_handle_pointer_operations",
+    # Pointer operations
+    "PTR": "_handle_pointer_operations",
     
     # Arithmetic operations
     "ADD": "_handle_arithmetic",
@@ -495,10 +571,23 @@ HANDLERS = {
 # Add handler methods for each opcode
 for op, handler_name in HANDLERS.items():
     if not hasattr(SemanticAnalyzer, handler_name):
-        setattr(SemanticAnalyzer, f"_handle_{op.lower()}", 
-                lambda self, o, ln, op=op, h=handler_name: 
-                    getattr(self, h)(op, o, ln) if h.startswith('_handle_') 
-                    else getattr(self, h)(o, ln))
+        if handler_name in {"_handle_arithmetic", "_handle_inc_dec", "_handle_pointer_operations", 
+                          "_handle_if_elif_else", "_handle_loop_start", "_handle_push_pop"}:
+            # These handlers need the operation type as first argument
+            def make_handler(op_name, h_name):
+                def handler(self, operands, line_num):
+                    return getattr(self, h_name)(op_name, operands, line_num)
+                return handler
+            setattr(SemanticAnalyzer, handler_name, 
+                   make_handler(op, handler_name))
+        else:
+            # Standard handlers just take operands and line number
+            def make_std_handler(h_name):
+                def handler(self, operands, line_num):
+                    return getattr(self, h_name)(operands, line_num)
+                return handler
+            setattr(SemanticAnalyzer, handler_name, 
+                   make_std_handler(handler_name))
 
 def validate_const_and_types(instructions: List[Tuple[str, list, int]],
                           declarations: Dict[Tuple[Optional[str], str], Dict[str, Any]],

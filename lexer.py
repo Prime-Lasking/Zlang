@@ -10,7 +10,7 @@ TOKEN_RE = re.compile(r'"[^"]*"|\S+')
 
 OPS = {"MOV", "ADD", "SUB", "MUL", "DIV", "PRINT", "READ", "MOD", "INC", "DEC", "CALL", "RET", "ERROR",
        "FNDEF", "FN", "FOR", "WHILE", "IF", "ELSE", "ELIF", "PRINTSTR", "CONST",
-       "ARR", "LEN", "PUSH", "POP"}
+       "ARR", "LEN", "PUSH", "POP","PTR"}
 
 # Array types
 ARRAY_TYPES = {"Aint", "Afloat", "Adouble", "Abool", "Astring"}
