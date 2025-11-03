@@ -82,11 +82,29 @@ class SemanticAnalyzer:
     
     def _get_type(self, name: str, scope: Optional[str] = None) -> Optional[str]:
         """Get the type of a variable or function return type."""
+        # Handle array access like arr[1]
+        if '[' in name and ']' in name:
+            array_name = name.split('[')[0]
+            decl = self._get_decl(array_name, scope)
+            if not decl:
+                return None
+            array_type = decl.get("type")
+            if array_type in array_type_map:
+                return array_type_map[array_type]
+            return None
+            
         decl = self._get_decl(name, scope)
         return decl.get("type") if decl else None
     
     def _check_variable_exists(self, name: str, line_num: int) -> None:
         """Check if a variable exists in the current or global scope."""
+        # Handle array access like arr[1]
+        if '[' in name and ']' in name:
+            array_name = name.split('[')[0]
+            if not self._get_decl(array_name):
+                self._error(f"Array '{array_name}' not declared", line_num, ErrorCode.UNDEFINED_SYMBOL)
+            return
+            
         if not self._get_decl(name):
             self._error(f"Variable '{name}' not declared", line_num, ErrorCode.UNDEFINED_SYMBOL)
     
@@ -281,13 +299,28 @@ class SemanticAnalyzer:
             self._error("Invalid array operation", line_num, ErrorCode.SYNTAX_ERROR)
             return
             
-        # ARR <type> <name> [size|initializer]
+        # ARR <type> <name> <size> [initializer] or ARR <type> <name> [initializer]
         if operands[0] not in array_types:
             self._error(f"Invalid array type: {operands[0]}", line_num, ErrorCode.INVALID_TYPE)
             return
             
-        if len(operands) > 2:
-            # Check array initializer if present
+        array_type = operands[0]
+        array_name = operands[1]
+        
+        # Check if array is already declared
+        if self._get_decl(array_name):
+            self._error(f"Variable '{array_name}' already declared", line_num, ErrorCode.DUPLICATE_DECLARATION)
+            return
+            
+        # Add the array to declarations
+        self.declarations[(self.current_function, array_name)] = {
+            'type': array_type,
+            'mutable': True,
+            'line': line_num
+        }
+        
+        # Handle array initializer if present
+        if len(operands) >= 3:
             initializer = operands[2]
             if initializer.startswith('[') and initializer.endswith(']'):
                 # Simple check for array literals

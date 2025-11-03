@@ -92,12 +92,36 @@ def parse_z_file(z_file: str) -> Tuple[list, set, Dict[Tuple[Optional[str], str]
                 raise CompilerError("Inconsistent indentation", line_num, 
                                  ErrorCode.SYNTAX_ERROR, z_file)
         
-        # Remove comments and split into tokens
+        # Remove comments and process the line
         line = line.split('//')[0].strip()
         if not line:
             continue
             
-        tokens = TOKEN_RE.findall(line)
+        # Special handling for array access in print statements
+        line_stripped = line.strip()
+        if line_stripped.startswith('PRINT '):
+            # Extract the expression after PRINT
+            expr = line[5:].strip()
+            if '[' in expr and ']' in expr:
+                # This is an array access, handle it as a single token
+                tokens = ['PRINT', expr]
+            else:
+                tokens = TOKEN_RE.findall(line)
+        # Special handling for array declarations
+        elif line_stripped.startswith('ARR '):
+            # Handle array declaration format: ARR type name size [values...]
+            parts = line_stripped.split()
+            if len(parts) >= 4 and '[' in line and ']' in line:
+                # Extract array values as a single token
+                start_idx = line.find('[')
+                end_idx = line.rfind(']')
+                array_values = line[start_idx:end_idx+1]
+                tokens = parts[:3] + [array_values]
+            else:
+                tokens = TOKEN_RE.findall(line)
+        else:
+            tokens = TOKEN_RE.findall(line)
+            
         if not tokens:
             continue
             

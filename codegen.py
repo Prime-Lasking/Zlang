@@ -192,7 +192,7 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
         "    return (char*)arr->data + index * arr->elem_size;",
         "}",
         "",
-        "// Print array function",
+        "// Print array function - simplified to use printf",
         "void print_array(Array* arr) {",
         "    if (!arr) {",
         "        printf(\"NULL\\n\");",
@@ -216,11 +216,11 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
         "    printf(\"]\\n\");",
         "}",
         "",
-        "// Helper functions",
-        "void print_double(double d) { printf(\"%g\\n\", d); }",
-        "void print_int(int i) { printf(\"%d\\n\", i); }",
-        "void print_bool(bool b) { printf(\"%s\\n\", b ? \"true\" : \"false\"); }",
-        "void print_str(const char* s) { printf(\"%s\\n\", s); }",
+        "// Single printf function for all types",
+        "#define print_double(d) printf(\"%g\\n\", d)",
+        "#define print_int(i) printf(\"%d\\n\", i)",
+        "#define print_bool(b) printf(\"%s\\n\", (b) ? \"true\" : \"false\")",
+        "#define print_str(s) printf(\"%s\\n\", s)",
         "void error_exit(int code, const char* msg) {",
         "    fprintf(stderr, \"Error [E%d]: %s\\n\", code, msg);",
         "    exit(code);",
@@ -617,36 +617,62 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
         if op == "PRINT":
             operand = operands[0]
             
-            # Check if this is an array print operation (PRINTARR)
+            # Check if this is an array print operation (PRINTARR or array variable)
             if op == "PRINTARR" or (operand in variable_types and variable_types[operand] in ["Aint", "Afloat", "Adouble", "Abool", "Astring"]):
                 c_lines.append(f"{prefix}print_array({operand});")
+            # Check for array access (var[index])
+            elif '[' in operand and ']' in operand:
+                # Extract array name and index
+                arr_name = operand.split('[')[0]
+                idx_expr = operand[operand.find('[')+1:operand.find(']')]
+                # Get array type to determine element type
+                if arr_name in variable_types:
+                    # Evaluate the index expression (could be a variable or literal)
+                    idx = idx_expr
+                    if idx_expr.isdigit():
+                        # It's a numeric literal
+                        idx = int(idx_expr)
+                    elif idx_expr in variable_types:
+                        # It's a variable, use its value
+                        idx = idx_expr
+                    arr_type = variable_types[arr_name]
+                    if arr_type == "Aint":
+                        c_lines.append(f"{prefix}printf(\"%d\\n\", *((int*)array_get({arr_name}, {idx})));")
+                    elif arr_type == "Afloat":
+                        c_lines.append(f"{prefix}printf(\"%g\\n\", *((float*)array_get({arr_name}, {idx})));")
+                    elif arr_type == "Adouble":
+                        c_lines.append(f"{prefix}printf(\"%g\\n\", *((double*)array_get({arr_name}, {idx})));")
+                    elif arr_type == "Abool":
+                        c_lines.append(f"{prefix}printf(\"%s\\n\", *((bool*)array_get({arr_name}, {idx})) ? \"true\" : \"false\");")
+                    elif arr_type == "Astring":
+                        c_lines.append(f"{prefix}printf(\"%s\\n\", *((const char**)array_get({arr_name}, {idx})));")
             else:
-                # For non-array values, use the appropriate print function
+                # Use printf directly with format specifier based on type
                 if operand in variable_types:
                     var_type = variable_types[operand]
                     if var_type == "int":
-                        c_lines.append(f"{prefix}print_int({operand});")
+                        c_lines.append(f"{prefix}printf(\"%d\\n\", {operand});")
                     elif var_type == "bool":
-                        c_lines.append(f"{prefix}print_bool({operand});")
+                        c_lines.append(f"{prefix}printf(\"%s\\n\", {operand} ? \"true\" : \"false\");")
                     elif var_type == "string":
-                        c_lines.append(f"{prefix}print_str({operand});")
+                        c_lines.append(f"{prefix}printf(\"%s\\n\", {operand});")
                     else:  # double, float, or default
-                        c_lines.append(f"{prefix}print_double({operand});")
+                        c_lines.append(f"{prefix}printf(\"%g\\n\", (double){operand});")
                 elif operand.startswith('"') and operand.endswith('"'):
                     # String literal
-                    c_lines.append(f"{prefix}print_str({operand});")
+                    c_lines.append(f"{prefix}printf(\"%s\\n\", {operand});")
                 elif operand in ["true", "false"]:
                     # Boolean literal
-                    c_lines.append(f"{prefix}print_bool({operand});")
+                    c_lines.append(f"{prefix}printf(\"%s\\n\", {operand} ? \"true\" : \"false\");")
                 elif is_number(operand):
                     # Numeric literal - check if it looks like an integer
                     if '.' in operand or 'e' in operand.lower():
-                        c_lines.append(f"{prefix}print_double({operand});")
+                        c_lines.append(f"{prefix}printf(\"%g\\n\", {operand});")
                     else:
-                        c_lines.append(f"{prefix}print_int({operand});")
+                        c_lines.append(f"{prefix}printf(\"%d\\n\", (int){operand});")
                 else:
                     # Default to double for variables/expressions without explicit type
-                    c_lines.append(f"{prefix}print_double({operand});")
+                    c_lines.append(f"{prefix}printf(\"%g\\n\", (double){operand});")
             continue
         if op == "ERROR":
             msg = " ".join(operands)
