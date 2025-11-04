@@ -319,65 +319,99 @@ def compile_zlang(input_path: str, output_path: str, output_format: str, compile
             silent = run_after_compile  # Be silent if we're going to run the program
             compiler_name, compiler_cmd = find_compiler(compiler, silent=silent)
             
-            if output_format == 's':
-                # Generate assembly
-                if compiler_name == 'msvc':
-                    cmd = [
-                        'cl.exe',
-                        '/FA',  # Generate assembly code
-                        '/c',   # Compile only, don't link
-                        '/Fa' + abs_output_path,  # Output assembly file
-                        abs_c_file
-                    ]
-                else:  # clang/gcc
-                    cmd = compiler_cmd + [
-                        '-S',  # Generate assembly
-                        '-fverbose-asm',  # Add some helpful comments
-                        '-o', abs_output_path,
-                        abs_c_file
-                    ]
-            else:  # exe output
-                if compiler_name == 'msvc':
-                    cmd = [
-                        'cl.exe',
-                        f'/Fe{abs_output_path}',
-                        '/O2',
-                        '/nologo',
-                        abs_c_file,
-                        '/link',
-                        '/SUBSYSTEM:CONSOLE',
-                        '/MACHINE:X64' if sys.maxsize > 2**32 else '/MACHINE:X86'
-                    ]
-                else:
-                    # Use the actual compiler command found by find_compiler()
-                    cmd = compiler_cmd + [
-                        abs_c_file,
-                        '-o', abs_output_path,
-                        '-O2',
-                        '-Wall', '-Wextra',
-                        '-D_CRT_SECURE_NO_WARNINGS'
-                    ]
-                    # For Windows, ensure we're targeting the right architecture and format
-                    if sys.platform == 'win32':
-                        cmd.extend(['-target', 'x86_64-windows-msvc'])
-            
-            # Run the compiler
-            compile_start = time.time()
-            success, out, err = run_command(cmd, check=False)
-            compile_time = time.time() - compile_start
-            
-            if not success:
-                error_msg = f"Compilation failed with {compiler_name}"
-                if err.strip():
-                    error_msg += f"\n{err}"
-                raise CompilerError(error_msg, error_code=ErrorCode.COMPILATION_ERROR, file_path=validated_input_path)
-            
-            if not os.path.exists(abs_output_path):
+            if not compiler_cmd:
                 raise CompilerError(
-                    f"Compilation succeeded but output file was not created: {abs_output_path}",
-                    error_code=ErrorCode.FILE_WRITE_ERROR,
-                    file_path=validated_input_path
+                    f"No suitable C compiler found. Tried: {', '.join(compiler) if isinstance(compiler, list) else compiler}",
+                    ErrorCode.NO_COMPILER,
+                    validated_input_path
                 )
+
+            compile_cmd = [
+                *compiler_cmd,
+                abs_c_file,
+                '-o', abs_output_path,
+                '-O2',  # Optimize for speed
+                '-Wall',  # Enable all warnings
+                '-Wextra',  # Enable extra warnings
+                '-Werror',  # Treat warnings as errors
+                '-std=c17',  # Use C17 standard
+            ]
+
+            # Add platform-specific flags
+            if compiler_name == 'msvc':
+                compile_cmd.extend(['/nologo', '/W4', '/WX', '/O2'])
+            else:  # clang/gcc
+                compile_cmd.extend(['-march=native', '-fno-strict-aliasing'])
+
+            if output_format == 's':
+                if compiler_name == 'msvc':
+                    compile_cmd.extend(['/Fa', '/c'])
+                else:  # clang/gcc
+                    compile_cmd.extend(['-S', '-fverbose-asm'])
+
+            compile_start = time.time()
+            try:
+                result = subprocess.run(compile_cmd, capture_output=True, text=True, check=False)
+                
+                # Check if compilation was successful but no output file was created
+                if result.returncode == 0 and not os.path.exists(abs_output_path):
+                    error_msg = "Compilation succeeded but output file was not created. "
+                    error_msg += "This might be due to:\n"
+                    error_msg += "1. Missing `_start` or `main` function in your program\n"
+                    error_msg += "2. Incorrect file permissions in the output directory\n"
+                    error_msg += "3. Compiler error that wasn't properly reported"
+                    
+                    if result.stderr:
+                        error_msg += f"\n\nCompiler output:\n{result.stderr}"
+                    
+                    raise CompilerError(
+                        error_msg,
+                        ErrorCode.NO_OUTPUT_FILE,
+                        validated_input_path
+                    )
+                
+                # If compilation failed, raise an error with the compiler output
+                if result.returncode != 0:
+                    error_msg = f"C compilation failed with exit code {result.returncode}"
+                    if result.stderr:
+                        error_msg += f"\n\nError output:\n{result.stderr}"
+                    if result.stdout:
+                        error_msg += f"\n\nOutput:\n{result.stdout}"
+                    
+                    raise CompilerError(
+                        error_msg,
+                        ErrorCode.COMPILATION_FAILED,
+                        validated_input_path
+                    )
+                    
+            except subprocess.CalledProcessError as e:
+                # Provide more detailed error information
+                error_msg = f"C compilation failed with exit code {e.returncode}"
+                if e.stderr:
+                    error_msg += f"\n\nError output:\n{e.stderr}"
+                if e.stdout:
+                    error_msg += f"\n\nOutput:\n{e.stdout}"
+                
+                raise CompilerError(
+                    error_msg,
+                    ErrorCode.COMPILATION_FAILED,
+                    validated_input_path
+                )
+            except Exception as e:
+                raise CompilerError(
+                    f"Unexpected error during compilation: {str(e)}",
+                    ErrorCode.UNEXPECTED_ERROR,
+                    validated_input_path
+                )
+            finally:
+                # Clean up the C file if compilation fails
+                if abs_c_file and os.path.exists(abs_c_file) and not (output_format == 'c'):
+                    try:
+                        os.remove(abs_c_file)
+                    except OSError:
+                        pass
+            
+            compile_time = time.time() - compile_start
             
             # Clean up C file after successful compilation if not keeping it
             if output_format != 'c':
@@ -415,7 +449,8 @@ def compile_zlang(input_path: str, output_path: str, output_format: str, compile
                         check=False,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
-                        text=True
+                        text=True,
+                        shell=True  # This helps with command execution on Windows
                     )
                     run_time = time.time() - run_start
                     
@@ -429,14 +464,37 @@ def compile_zlang(input_path: str, output_path: str, output_format: str, compile
                         print(f"\nProgram exited with code {result.returncode} in {format_time(run_time)}")
                     
                     # Propagate the exit code
-                    if result.returncode != 0 and run_after_compile:
-                        sys.exit(result.returncode)
+                    if result.returncode != 0:
+                        if run_after_compile:
+                            # Provide more detailed error information for run mode
+                            if result.stderr:
+                                print(f"\n{Colors.RED}✗ Program error:{Colors.ENDC} {result.stderr.strip()}", file=sys.stderr)
+                            else:
+                                print(f"\n{Colors.RED}✗ Program exited with code {result.returncode}{Colors.ENDC}", file=sys.stderr)
+                            sys.exit(result.returncode)
+                    
+                except FileNotFoundError:
+                    print(f"{Colors.RED}✗ Error: Could not execute the program. The executable was not found at: {abs_output_path}{Colors.ENDC}", file=sys.stderr)
+                    print(f"{Colors.YELLOW}Note: This might be due to a compilation error or missing dependencies.{Colors.ENDC}", file=sys.stderr)
+                    sys.exit(1)
+                        
+                except PermissionError:
+                    print(f"{Colors.RED}✗ Error: Permission denied when trying to execute: {abs_output_path}{Colors.ENDC}", file=sys.stderr)
+                    print(f"{Colors.YELLOW}Note: Try running with administrator privileges or check file permissions.{Colors.ENDC}", file=sys.stderr)
+                    sys.exit(1)
+                        
+                except subprocess.CalledProcessError as e:
+                    print(f"{Colors.RED}✗ Error running program (exit code {e.returncode}):{Colors.ENDC}", file=sys.stderr)
+                    if e.stdout:
+                        print(e.stdout, file=sys.stderr)
+                    if e.stderr:
+                        print(e.stderr, file=sys.stderr)
+                    sys.exit(e.returncode)
                         
                 except Exception as e:
-                    if not run_after_compile:  # Only show error in non-run mode
-                        print(f"Error running program: {e}")
-                    else:
-                        print(f"Error: {e}", file=sys.stderr)
+                    print(f"{Colors.RED}✗ Unexpected error while running program: {str(e)}{Colors.ENDC}", file=sys.stderr)
+                    import traceback
+                    traceback.print_exc()
                     sys.exit(1)
 
     except CompilerError:

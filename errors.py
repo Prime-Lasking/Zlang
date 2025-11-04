@@ -44,10 +44,16 @@ class ErrorCode(Enum):
     # External tool errors (61-70)
     EXTERNAL_TOOL_ERROR = 61
     COMPILATION_ERROR = 62
+    COMPILATION_FAILED = 63
+    NO_COMPILER = 64
     
     # Configuration errors (71-80)
     CONFIGURATION_ERROR = 71
     MISSING_DEPENDENCY = 72
+    
+    # Unexpected errors (90-99)
+    UNEXPECTED_ERROR = 90
+    NO_OUTPUT_FILE = 91
     
     # Custom error for user-defined errors
     CUSTOM_ERROR = 99

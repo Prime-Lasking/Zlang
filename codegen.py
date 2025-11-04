@@ -238,11 +238,18 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
         "    if (scanf(\"%d\", &i) != 1) error_exit(1, \"Failed to read integer\");",
         "    return i;",
         "}",
-        "const char* read_str(const char* prompt, const char* s) {",
-        "    printf(\"%s\", prompt);",
+        "const char* read_str(const char* prompt) {",
+        "    (void)prompt;  // Explicitly mark as unused to avoid warnings",
         "    // Use a fixed-size buffer for simplicity",
         "    static char buffer[1024];",
-        "    if (scanf(\"%1023s\", buffer) != 1) error_exit(1, \"Failed to read string\");",
+        "    if (fgets(buffer, sizeof(buffer), stdin) == NULL) {",
+        "        buffer[0] = '\\0';  // Return empty string on error",
+        "    }",
+        "    // Remove trailing newline if present",
+        "    size_t len = strlen(buffer);",
+        "    if (len > 0 && buffer[len-1] == '\\n') {",
+        "        buffer[len-1] = '\\0';",
+        "    }",
         "    return buffer;",
         "}",
         "",
@@ -970,7 +977,7 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
                 
                 # Generate appropriate read function call based on type
                 if read_type == "string":
-                    c_lines.append(f"{prefix}{sanitized_cache[dest]} = read_str({prompt}, {sanitized_cache[dest]});")
+                    c_lines.append(f"{prefix}{sanitized_cache[dest]} = read_str({prompt});")
                 elif read_type == "int":
                     c_lines.append(f"{prefix}{sanitized_cache[dest]} = read_int({prompt}, {sanitized_cache[dest]});")
                 else:  # double or float
