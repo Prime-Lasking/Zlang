@@ -178,6 +178,8 @@ FN main():
 ### Variables & Data Types
 - **Type declarations**: `int`, `float`, `double`, `bool`, `string`
 - **Mutable variables**: `MOV int x 10` (mutable by default)
+- **Immutable constants**: `CONST int MAX_SIZE 100` (cannot be reassigned)
+- **Redeclaration protection**: Prevents accidental variable redeclaration
 
 ### Pointers & Memory
 - **Pointer declaration**: `PTR int ptr x` (creates a pointer to variable `x`)
@@ -196,8 +198,6 @@ FN main():
     PRINT *ptr  # Prints: 42 (dereferences the pointer)
     
 ```
-- **Immutable constants**: `CONST int MAX_SIZE 100` (cannot be reassigned)
-- **Redeclaration protection**: Prevents accidental variable redeclaration
 
 ### Arrays
 - **Fixed-size arrays**: `ARR Aint numbers 3 [1, 2, 3]` (capacity=3, length=3)
