@@ -59,18 +59,14 @@ Options:
                               asm  → generate assembly code (.s)
     -o, --output <file>     Output file name (default: <source>.<format>)
     -c, --compiler <name>   C compiler to use (clang, gcc) [default: clang]
-    -S, --assembly          Generate assembly code (.s file)
-    -R, --run               Run the program after compilation (implies -f exe)
     -h, --help              Show this help
     -v, --version           Show version
 
 Examples:
     z program.z              # Compile to program.exe
     z program.z -f c         # Generate program.c
-    z program.z -f exe -o my_program.exe
-    z program.z -S           # Generate program.s assembly
-    z program.z -R           # Compile and run program
-    z program.z -S -R        # Generate assembly, compile it, and run
+    z program.z -f asm     # Generate program.s assembly
+    z run program.z        # Compile and run program
 """
 
 def validate_input_path(input_path: str) -> str:
