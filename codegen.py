@@ -476,6 +476,9 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
                 var_type = get_var_type(raw_name, var)
                 c_type = get_c_type(var_type)
                 const_prefix = "const " if is_const(raw_name, var) else ""
+                if const_prefix:
+                    continue
+
 
                 # Initialize variables with appropriate default values based on type
                 if var_type == "string":
@@ -634,8 +637,8 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
                         expr = 'false'
                     else:  # double, float
                         expr = '0.0'
-                # Generate only assignment (declaration is already at top of function)
-                c_lines.append(f"{prefix}{sanitized_cache[dest]} = {expr}; ")
+                # Generate final const line
+                c_lines.append(f"{prefix}const {operands[0]} {sanitized_cache[dest]} = {expr}; ")
             continue
 
         if op == "ADD":
