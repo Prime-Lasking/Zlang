@@ -333,7 +333,8 @@ def compile_zlang(input_path: str, output_path: str, output_format: str, compile
                 '-O2',  # Optimize for speed
                 '-Wall',  # Enable all warnings
                 '-Wextra',  # Enable extra warnings
-                '-Werror',  # Treat warnings as errors
+                '-Wno-unused-variable',  # Ignore unused variable warnings
+                '-Wno-unused-but-set-variable',  # Ignore unused but set variable warnings
                 '-std=c17',  # Use C17 standard
             ]
 

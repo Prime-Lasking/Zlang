@@ -311,6 +311,9 @@ class SemanticAnalyzer:
             
         dest = operands[0]
         
+        # Check for pointer dereferencing (e.g., *ptr = value)
+        is_pointer_deref = dest.startswith('*')
+        
         # Variable declaration: MOV type var [value]
         if operands[0] in types_set:
             if len(operands) < 2:
@@ -322,11 +325,34 @@ class SemanticAnalyzer:
                 self._check_value_type(value, operands[0], line_num)
         # Assignment: MOV dest value
         else:
-            self._check_variable_exists(dest, line_num)
-            self._check_const_assignment(dest, line_num)
-            
-            # Type checking for the assigned value
-            value_type = self._infer_type(operands[1])
+            if is_pointer_deref:
+                # Handle pointer dereferencing: MOV *ptr value
+                ptr_name = dest[1:]  # Remove the *
+                self._check_variable_exists(ptr_name, line_num)
+                
+                # Get the pointer declaration
+                ptr_decl = self._get_decl(ptr_name)
+                if not ptr_decl or not ptr_decl['type'].endswith('*'):
+                    self._error(f"Cannot dereference non-pointer variable '{ptr_name}'", 
+                              line_num, ErrorCode.TYPE_MISMATCH)
+                
+                # Get the base type (without the pointer)
+                base_type = ptr_decl['type'].rstrip('*')
+                
+                # Check if the value is compatible with the pointer's base type
+                value_type = self._infer_type(operands[1])
+                if value_type and value_type != base_type:
+                    self._error(
+                        f"Cannot assign value of type '{value_type}' to pointer of type '{base_type}*' (dereferenced as '{base_type}')",
+                        line_num, ErrorCode.TYPE_MISMATCH
+                    )
+            else:
+                # Regular variable assignment
+                self._check_variable_exists(dest, line_num)
+                self._check_const_assignment(dest, line_num)
+                
+                # Type checking for the assigned value
+                value_type = self._infer_type(operands[1])
             if value_type:
                 self._check_type_compatibility(dest, value_type, line_num)
     
@@ -451,25 +477,32 @@ class SemanticAnalyzer:
             args = operands[1:arrow_idx]
         else:
             # Check if the last operand is the return variable without ->
-            # This handles the case: CALL fibonacci(count) result
-            if len(operands) > 2 and '->' not in operands:
-                return_var = operands[-1]
-                args = operands[1:-1]  # Everything between function name and return_var
+            # This handles the case: CALL fibonacci count result
+            if len(operands) > 1 and operands[-1] != '->':
+                # The last operand is the return variable if it's not an argument
+                # and not an arrow
+                if len(operands) > 2 or (len(operands) == 2 and not operands[1].startswith('(')):
+                    return_var = operands[-1]
+                    args = operands[1:-1]  # Everything between function name and return_var
+                else:
+                    args = operands[1:]  # All operands after function name are arguments
             else:
                 # All operands after function name are arguments
                 args = operands[1:]
             
         # Handle function calls with parentheses like 'fibonacci(count)'
-        if len(args) == 1 and args[0].startswith('(') and args[0].endswith(')'):
+        if args and len(args) == 1 and args[0].startswith('(') and args[0].endswith(')'):
             # Extract the argument from inside the parentheses
-            arg_str = args[0][1:-1]  # Remove the parentheses
+            arg_str = args[0][1:-1].strip()  # Remove the parentheses and trim whitespace
             args = [arg_str] if arg_str else []
-        elif len(args) == 1 and args[0].endswith(')'):
+        elif args and len(args) == 1 and args[0].endswith(')'):
             # Handle case like 'fibonacci(count' (missing closing parenthesis)
             self._error("Missing opening parenthesis in function call", line_num, ErrorCode.SYNTAX_ERROR)
-        elif len(args) == 1 and args[0].startswith('('):
+            return
+        elif args and len(args) == 1 and args[0].startswith('('):
             # Handle case like 'fibonacci(count' (missing closing parenthesis)
             self._error("Missing closing parenthesis in function call", line_num, ErrorCode.SYNTAX_ERROR)
+            return
         
         # Check if function exists
         func_decl = self._get_decl(func_name, None)  # Functions are always in global scope
@@ -665,6 +698,11 @@ class SemanticAnalyzer:
     
     def _handle_if_elif_else(self, op: str, operands: List[str], line_num: int) -> None:
         """Handle IF, ELIF, and ELSE statements."""
+        if op == "ELSE":
+            if operands:
+                self._error("ELSE does not take any conditions", line_num, ErrorCode.SYNTAX_ERROR)
+            return
+            
         if op in {"IF", "ELIF"} and not operands:
             self._error(f"{op} requires a condition", line_num, ErrorCode.SYNTAX_ERROR)
             return
@@ -708,8 +746,9 @@ class SemanticAnalyzer:
             return "bool"
         elif value.isdigit():
             return "int"
-        elif value.replace('.', '', 1).isdigit():
-            return "float"  # Could be float or double, default to float
+        elif value.replace('.', '', 1).isdigit() and value.count('.') == 1:
+            # For floating-point literals, default to double precision
+            return "double"
         elif value.startswith('"') and value.endswith('"'):
             return "string"
             

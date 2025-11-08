@@ -120,6 +120,10 @@ def parse_z_file(z_file: str) -> Tuple[list, set, Dict[Tuple[Optional[str], str]
             else:
                 tokens = TOKEN_RE.findall(line)
         else:
+            # Handle ELSE: as a single token
+            if 'ELSE:' in line and not ('IF' in line or 'ELIF' in line):
+                # Replace 'ELSE:' with 'ELSE' to handle it as a single token
+                line = line.replace('ELSE:', 'ELSE')
             tokens = TOKEN_RE.findall(line)
             
         if not tokens:
@@ -176,31 +180,37 @@ def parse_z_file(z_file: str) -> Tuple[list, set, Dict[Tuple[Optional[str], str]
                 func_depth = 0
             continue
 
-        # Handle function calls: CALL name(arg1, arg2) [-> ret] OR CALL name(arg1) ret
+        # Handle function calls: CALL name(arg1, arg2) [-> ret] OR CALL name(arg1) ret OR CALL name -> ret
         if op == "CALL":
             joined = ' '.join(operands)
             ret_var = None
             call_expr = joined
+            
+            # Check for return value specification (-> ret)
             if '->' in joined:
                 call_expr, ret_var = [s.strip() for s in joined.split('->', 1)]
-            else:
-                # If there's a trailing identifier after ) treat it as return var
-                if ')' in joined:
-                    before, after = joined.split(')', 1)
-                    call_expr = before + ')'
-                    after = after.strip()
-                    if after:
-                        ret_var = after
-            # Parse function and args
+            
+            # Parse function name and arguments
             if '(' in call_expr and call_expr.endswith(')'):
+                # Function call with arguments: name(arg1, arg2)
                 fname = call_expr.split('(')[0].strip()
                 args_str = call_expr.split('(', 1)[1][:-1].strip()
                 args = [a.strip() for a in args_str.split(',')] if args_str else []
             else:
+                # Function call without arguments: name
                 fname = call_expr.strip()
                 args = []
+            
+            # If we didn't find a return variable yet, check for space-separated return var
+            if ret_var is None and ' ' in joined and not ('(' in joined and ')' in joined):
+                parts = joined.split()
+                if len(parts) > 1:
+                    fname = parts[0]
+                    ret_var = parts[1]
+            
             if ret_var is None:
                 ret_var = "_"
+                
             instructions.append(("CALL", [fname] + args + [ret_var], line_num))
             continue
 
