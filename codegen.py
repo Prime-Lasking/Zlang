@@ -125,17 +125,22 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
         "} Array;",
         "",
         "// Array functions implementation",
-        "Array* array_create(size_t elem_size, const char* type) {",
+        "Array* array_create_with_capacity(size_t elem_size, const char* type, size_t initial_capacity) {",
         "    Array* arr = (Array*)malloc(sizeof(Array));",
         "    if (!arr) { fprintf(stderr, \"Memory allocation failed\\n\"); exit(1); }",
         "    arr->size = 0;",
-        "    arr->capacity = 4;",
+        "    arr->capacity = initial_capacity > 0 ? initial_capacity : 4;  // Ensure minimum capacity of 4",
         "    arr->elem_size = elem_size;",
         "    strncpy(arr->type, type, sizeof(arr->type) - 1);",
         "    arr->type[sizeof(arr->type) - 1] = '\\0';",
         "    arr->data = malloc(arr->capacity * elem_size);",
         "    if (!arr->data) { fprintf(stderr, \"Memory allocation failed\\n\"); exit(1); }",
         "    return arr;",
+        "}",
+        "",
+        "Array* array_create(size_t elem_size, const char* type) {",
+        "    // Default initial capacity of 4",
+        "    return array_create_with_capacity(elem_size, type, 4);",
         "}",
         "",
         "void array_free(Array* arr) {",
@@ -505,40 +510,45 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
             c_lines.append(f"{prefix}}}")
             continue
 
-        if op in ["IF", "ELIF", "ELSE", "WHILE", "FOR"]:
+        if op in ["IF", "ELIF"]:
             cond = " ".join(operands)
             cond = sanitize_condition(cond)
             cond = translate_logical_operators(cond)
             if op == "IF":
                 c_lines.append(f"{prefix}if ({cond}) {{ ")
-            elif op == "ELIF":
+            else:  # ELIF
                 c_lines.append(f"{prefix}else if ({cond}) {{ ")
-            elif op == "ELSE":
-                c_lines.append(f"{prefix}else {{ ")
-            elif op == "WHILE":
-                c_lines.append(f"{prefix}while ({cond}) {{ ")
-            elif op == "FOR":
+        elif op in ["ELSE", "ELSE:"]:
+            if operands and operands != [":"]:  # Allow 'ELSE:' as valid syntax
+                raise CompilerError("ELSE does not take any conditions", line_num, ErrorCode.SYNTAX_ERROR)
+            c_lines.append(f"{prefix}else {{ ")
+        elif op == "WHILE":
+            cond = " ".join(operands)
+            cond = sanitize_condition(cond)
+            cond = translate_logical_operators(cond)
+            c_lines.append(f"{prefix}while ({cond}) {{ ")
+        elif op == "FOR":
+            # Default values
+            var = 'i'
+            start = '0'
+            end = '10'  # Default range end
+            
+            if operands:
+                var = operands[0]
                 if len(operands) >= 4:
-                    var, start_or_sep, *rest = operands
-                    # Handle both "var start .. end" and "var start..end" formats
-                    if '..' in start_or_sep:
-                        # Format: var start..end
-                        parts = start_or_sep.split('..')
-                        start = parts[0] if parts[0] else '0'
-                        end = parts[1] if len(parts) > 1 and parts[1] else '0'
-                    elif len(rest) >= 2 and rest[0] == '..':
-                        # Format: var start .. end
-                        start = start_or_sep
-                        end = rest[1] if len(rest) > 1 else '0'
-                    else:
-                        # Fallback
-                        start = start_or_sep
-                        end = rest[-1] if rest else '0'
-                else:
-                    # Fallback for unexpected format
-                    var = operands[0] if operands else 'i'
-                    start = '0'
-                    end = '0'
+                    # Handle FOR var start .. end format
+                    try:
+                        start = operands[1]
+                        if operands[2] == '..':
+                            end = operands[3] if len(operands) > 3 else '10'
+                        else:
+                            # Handle FOR var start..end format (no spaces around ..)
+                            if '..' in operands[1]:
+                                parts = operands[1].split('..')
+                                start = parts[0] if parts[0] else '0'
+                                end = parts[1] if len(parts) > 1 and parts[1] else '10'
+                    except IndexError:
+                        pass  # Use defaults if parsing fails
                 if var not in sanitized_cache:
                     sanitized_cache[var] = sanitize_identifier(var)
                 var_clean = sanitized_cache[var]
@@ -597,25 +607,69 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
             elif len(operands) == 2:
                 # Assignment: dest = expr
                 dest, expr = operands
-                if dest not in sanitized_cache:
-                    sanitized_cache[dest] = sanitize_identifier(dest)
-                dest_safe = sanitized_cache[dest]
                 
-                # Check if this is a re-declaration
-                is_redeclaration = any(
-                    line.strip().startswith(f"{dest_safe} =") or 
-                    line.strip().startswith(f"int {dest_safe} =") or
-                    line.strip().startswith(f"double {dest_safe} =") or
-                    line.strip().startswith(f"const char* {dest_safe} =")
-                    for line in c_lines
-                )
+                # Check for pointer dereferencing (e.g., *ptr = 100)
+                is_pointer_deref = dest.startswith('*')
                 
-                if not is_redeclaration and dest_safe not in variable_types:
-                    # If we don't know the type, default to int
-                    c_lines.append(f'{prefix}int {dest_safe} = {expr};')
-                    variable_types[dest_safe] = 'int'
+                if is_pointer_deref:
+                    # Handle pointer dereference assignment: *ptr = value
+                    ptr_name = dest[1:]  # Remove the *
+                    if ptr_name not in sanitized_cache:
+                        sanitized_cache[ptr_name] = sanitize_identifier(ptr_name)
+                    ptr_safe = sanitized_cache[ptr_name]
+                    c_lines.append(f'{prefix}*{ptr_safe} = {dest};')
                 else:
-                    c_lines.append(f'{prefix}{dest_safe} = {expr};')
+                    # Check if this is an array access (e.g., numbers[i])
+                    if '[' in expr and ']' in expr and '=' not in expr and '==' not in expr and '!=' not in expr:
+                        # Handle array access
+                        array_name = expr.split('[')[0]
+                        array_idx = expr.split('[')[1].split(']')[0]
+                        
+                        # Get the array type (Aint, Afloat, etc.)
+                        array_type = variable_types.get(array_name, 'Aint')  # Default to Aint if not found
+                        
+                        # Map ZLang array types to C types
+                        type_map = {
+                            'Aint': 'int',
+                            'Afloat': 'float',
+                            'Adouble': 'double',
+                            'Abool': 'bool',
+                            'Astring': 'const char*'
+                        }
+                        c_type = type_map.get(array_type, 'int')
+                        
+                        # Sanitize the destination variable name
+                        if dest not in sanitized_cache:
+                            sanitized_cache[dest] = sanitize_identifier(dest)
+                        dest_safe = sanitized_cache[dest]
+                        
+                        # Generate the array access code
+                        c_lines.append(f'{prefix}{c_type} {dest_safe} = *(({c_type}*)array_get({array_name}, {array_idx}));')
+                        
+                        # Track the variable type for future reference
+                        if dest_safe not in variable_types:
+                            variable_types[dest_safe] = c_type
+                    else:
+                        # Regular variable assignment
+                        if dest not in sanitized_cache:
+                            sanitized_cache[dest] = sanitize_identifier(dest)
+                        dest_safe = sanitized_cache[dest]
+                        
+                        # Check if this is a re-declaration
+                        is_redeclaration = any(
+                            line.strip().startswith(f"{dest_safe} =") or 
+                            line.strip().startswith(f"int {dest_safe} =") or
+                            line.strip().startswith(f"double {dest_safe} =") or
+                            line.strip().startswith(f"const char* {dest_safe} =")
+                            for line in c_lines
+                        )
+                        
+                        if not is_redeclaration and dest_safe not in variable_types:
+                            # If we don't know the type, default to int
+                            c_lines.append(f'{prefix}int {dest_safe} = {expr};')
+                            variable_types[dest_safe] = 'int'
+                        else:
+                            c_lines.append(f'{prefix}{dest_safe} = {expr};')
             continue
 
         if op == "CONST":
@@ -637,8 +691,14 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
                         expr = 'false'
                     else:  # double, float
                         expr = '0.0'
-                # Generate final const line
-                c_lines.append(f"{prefix}const {operands[0]} {sanitized_cache[dest]} = {expr}; ")
+                # Generate final const line with proper type handling for strings
+                var_type = operands[0]
+                if var_type == 'string':
+                    # For strings, we don't need an extra 'const' since 'const char*' already includes it
+                    c_lines.append(f"{prefix}const char* {sanitized_cache[dest]} = {expr};")
+                else:
+                    # For other types, use the original type with const
+                    c_lines.append(f"{prefix}const {var_type} {sanitized_cache[dest]} = {expr};")
             continue
 
         if op == "ADD":
@@ -672,84 +732,66 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
             c_lines.extend(add_overflow_check(prefix, '%', a, b, f"{sanitized_cache[res]}", line_num))
             continue
         if op == "PRINT":
-            operand = operands[0]
+            # First, handle the case where there are no operands (just print a newline)
+            if not operands:
+                c_lines.append(f'{prefix}printf("\n");')
+                continue
+                
+            # Process all operands to build format string and arguments
+            format_parts = []
+            format_args = []
             
-            # Check if this is an array print operation (PRINTARR or array variable)
-            if op == "PRINTARR" or (operand in variable_types and variable_types[operand] in ["Aint", "Afloat", "Adouble", "Abool", "Astring"]):
-                c_lines.append(f"{prefix}print_array({operand});")
-            # Check for array access (var[index])
-            elif '[' in operand and ']' in operand:
-                # Extract array name and index
-                arr_name = operand.split('[')[0]
-                idx_expr = operand[operand.find('[')+1:operand.find(']')]
-                # Get array type to determine element type
-                if arr_name in variable_types:
-                    # Evaluate the index expression (could be a variable or literal)
-                    idx = idx_expr
-                    if idx_expr.isdigit():
-                        # It's a numeric literal
-                        idx = int(idx_expr)
-                    elif idx_expr in variable_types:
-                        # It's a variable, use its value
-                        idx = idx_expr
-                    arr_type = variable_types[arr_name]
-                    if arr_type == "Aint":
-                        c_lines.append(f"{prefix}printf(\"%d\\n\", *((int*)array_get({arr_name}, {idx})));")
-                    elif arr_type == "Afloat":
-                        c_lines.append(f"{prefix}printf(\"%g\\n\", *((float*)array_get({arr_name}, {idx})));")
-                    elif arr_type == "Adouble":
-                        c_lines.append(f"{prefix}printf(\"%g\\n\", *((double*)array_get({arr_name}, {idx})));")
-                    elif arr_type == "Abool":
-                        c_lines.append(f"{prefix}printf(\"%s\\n\", *((bool*)array_get({arr_name}, {idx})) ? \"true\" : \"false\");")
-                    elif arr_type == "Astring":
-                        c_lines.append(f"{prefix}printf(\"%s\\n\", *((const char**)array_get({arr_name}, {idx})));")
-            else:
-                # Check for pointer dereference (e.g., *ptr)
-                if operand.startswith('*'):
-                    var_name = operand[1:]
-                    if var_name in variable_types:
-                        var_type = variable_types[var_name].rstrip('*')  # Get the base type
-                        if var_type == "int":
-                            c_lines.append(f"{prefix}printf(\"%d\\n\", *{var_name});")
-                        elif var_type == "bool":
-                            c_lines.append(f"{prefix}printf(\"%s\\n\", *{var_name} ? \"true\" : \"false\");")
-                        elif var_type == "string":
-                            c_lines.append(f"{prefix}printf(\"%s\\n\", *{var_name});")
-                        else:  # double, float, or default
-                            c_lines.append(f"{prefix}printf(\"%g\\n\", (double)*{var_name});")
-                    else:
-                        # Default to int* if type is unknown
-                        c_lines.append(f"{prefix}printf(\"%d\\n\", *{var_name});")
-                # Regular variable access
+            for operand in operands:
+                # Check if this is a string literal
+                if operand.startswith('"') and operand.endswith('"'):
+                    # Add the string literal directly to the format string
+                    format_parts.append(operand[1:-1])
+                # Check if this is a variable
                 elif operand in variable_types:
                     var_type = variable_types[operand]
-                    # Check if this is a pointer type
-                    if var_type.endswith('*'):
-                        # Print the address the pointer is pointing to
-                        c_lines.append(f"{prefix}printf(\"%p\\n\", (void*){operand});")
-                    elif var_type == "int":
-                        c_lines.append(f"{prefix}printf(\"%d\\n\", {operand});")
+                    if var_type == "int":
+                        format_parts.append("%d")
+                        format_args.append(operand)
                     elif var_type == "bool":
-                        c_lines.append(f"{prefix}printf(\"%s\\n\", {operand} ? \"true\" : \"false\");")
+                        format_parts.append("%s")
+                        format_args.append(f'({operand} ? "true" : "false")')
                     elif var_type == "string":
-                        c_lines.append(f"{prefix}printf(\"%s\\n\", {operand});")
-                    else:  # double, float, or default
-                        c_lines.append(f"{prefix}printf(\"%g\\n\", (double){operand});")
-                elif operand.startswith('"') and operand.endswith('"'):
-                    # String literal
-                    c_lines.append(f"{prefix}printf(\"%s\\n\", {operand});")
-                elif operand in ["true", "false"]:
-                    # Boolean literal
-                    c_lines.append(f"{prefix}printf(\"%s\\n\", {operand} ? \"true\" : \"false\");")
-                elif is_number(operand):
-                    # Numeric literal - check if it looks like an integer
-                    if '.' in operand or 'e' in operand.lower():
-                        c_lines.append(f"{prefix}printf(\"%g\\n\", {operand});")
+                        format_parts.append("%s")
+                        format_args.append(operand)
+                    elif var_type in ["float", "double"]:
+                        format_parts.append("%g")
+                        format_args.append(operand)
                     else:
-                        c_lines.append(f"{prefix}printf(\"%d\\n\", (int){operand});")
+                        # Default to %s for unknown types
+                        format_parts.append("%s")
+                        format_args.append(operand)
+                # Check if this is a number
+                elif operand.replace('.', '', 1).isdigit() or (operand.startswith('-') and operand[1:].replace('.', '', 1).isdigit()):
+                    # Numeric literal
+                    if '.' in operand or 'e' in operand.lower():
+                        format_parts.append("%g")
+                    else:
+                        format_parts.append("%d")
+                    format_args.append(operand)
+                # Check for boolean literals
+                elif operand == "true" or operand == "false":
+                    format_parts.append("%s")
+                    format_args.append('"true"' if operand == "true" else '"false"')
                 else:
-                    # Default to double for variables/expressions without explicit type
-                    c_lines.append(f"{prefix}printf(\"%g\\n\", (double){operand});")
+                    # Default to string
+                    format_parts.append("%s")
+                    format_args.append(f'"{operand}"')
+            
+            # Combine format parts and add newline
+            format_str = '"' + ''.join(format_parts) + '\\n"'
+            
+            # Generate the printf statement
+            if format_args:
+                args_str = ', '.join([format_str] + format_args)
+                c_lines.append(f'{prefix}printf({args_str});')
+            else:
+                # No arguments, just print the format string
+                c_lines.append(f'{prefix}printf({format_str});')
             continue
         if op == "ERROR":
             msg = " ".join(operands)
@@ -841,8 +883,15 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
                         values_str = ' '.join(operands[3:])
                     else:
                         # Format: ARR Aint arr [1,2,3] or ARR Aint arr 1,2,3
-                        capacity = '4'  # Default initial capacity
                         values_str = ' '.join(operands[2:])
+                        # Default capacity is the number of elements or 4, whichever is larger
+                        if '[' in values_str and ']' in values_str:
+                            # Extract values between [ and ]
+                            values_part = values_str[values_str.find('[')+1:values_str.rfind(']')]
+                            values = [v.strip() for v in values_part.split(',') if v.strip()]
+                            capacity = str(max(len(values), 4))  # At least 4 elements
+                        else:
+                            capacity = '4'  # Default initial capacity
                     
                     # Check for [ ] syntax
                     if '[' in values_str and ']' in values_str:
@@ -864,8 +913,8 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
                             z_file
                         )
                     
-                    # Create the array with specified or default capacity
-                    c_lines.append(f"{prefix}Array* {safe_name} = array_create(sizeof({c_type}), \"{arr_type_name}\");")
+                    # Create the array with the calculated capacity
+                    c_lines.append(f"{prefix}Array* {safe_name} = array_create_with_capacity(sizeof({c_type}), \"{arr_type_name}\", {capacity});")
                     
                     # Add values if any
                     for i, val in enumerate(values):
