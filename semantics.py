@@ -196,7 +196,6 @@ class SemanticAnalyzer:
         The lexer provides operands in the format:
         ['func_name', 'param1_type', 'param1_name', 'param2_type', 'param2_name', ..., 'return_type']
         """
-        print(f"DEBUG - _handle_fndef operands: {operands}")  # Debug print
         if not operands:
             return
             
@@ -433,7 +432,6 @@ class SemanticAnalyzer:
         
         Format: CALL <func_name> [arg1 arg2 ...] [-> return_var]
         """
-        print(f"DEBUG - _handle_call operands: {operands}")  # Debug print
         
         if not operands:
             self._error("Function name expected after CALL", line_num, ErrorCode.SYNTAX_ERROR)
@@ -460,15 +458,12 @@ class SemanticAnalyzer:
             else:
                 # All operands after function name are arguments
                 args = operands[1:]
-        
-        print(f"DEBUG - After initial parsing - func_name: {func_name}, args: {args}, return_var: {return_var}")
             
         # Handle function calls with parentheses like 'fibonacci(count)'
         if len(args) == 1 and args[0].startswith('(') and args[0].endswith(')'):
             # Extract the argument from inside the parentheses
             arg_str = args[0][1:-1]  # Remove the parentheses
             args = [arg_str] if arg_str else []
-            print(f"DEBUG - After handling parentheses - args: {args}")
         elif len(args) == 1 and args[0].endswith(')'):
             # Handle case like 'fibonacci(count' (missing closing parenthesis)
             self._error("Missing opening parenthesis in function call", line_num, ErrorCode.SYNTAX_ERROR)
