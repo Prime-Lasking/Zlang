@@ -351,6 +351,11 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
                 if len(operands) >= 2 and operands[0] in ["int", "float", "double", "string", "bool"]:
                     var_type = operands[0]
                     dest = operands[1]
+                    # For CONST, we'll mark the variable as const in the declarations
+                    if current_function:
+                        declarations[(current_function, dest)] = {"const": True, "type": var_type, "line": line_num}
+                    else:
+                        declarations[(None, dest)] = {"const": True, "type": var_type, "line": line_num}
                     # Track the variable type (for use in other operations)
                     if dest not in variable_types:
                         variable_types[dest] = var_type

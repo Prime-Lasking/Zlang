@@ -89,8 +89,39 @@ class SemanticAnalyzer:
     
     def _get_decl(self, name: str, scope: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Get variable/function declaration from the current or global scope."""
+        # If name is a list, use the first element (for handling return values)
+        if isinstance(name, list):
+            if not name:  # Empty list
+                return None
+            name = name[0]  # Use the first element
+            
         scope = scope or self.current_function
-        return self.declarations.get((scope, name)) or self.declarations.get((None, name))
+        
+        # First try with the current scope
+        if scope:
+            # Try with a string key first
+            key = f"{scope}_{name}" if scope else name
+            if key in self.declarations:
+                return self.declarations[key]
+                
+            # Then try with a tuple key for backward compatibility
+            tuple_key = (scope, name)
+            if tuple_key in self.declarations:
+                return self.declarations[tuple_key]
+        
+        # Then try with global scope
+        if scope is not None:  # Only if we haven't already tried None scope
+            # Try with a string key
+            if name in self.declarations:
+                return self.declarations[name]
+                
+            # Then try with a tuple key for backward compatibility
+            global_key = (None, name)
+            if global_key in self.declarations:
+                return self.declarations[global_key]
+        
+        # If we get here, the variable wasn't found
+        return None
     
     def _is_const(self, name: str, scope: Optional[str] = None) -> bool:
         """Check if a variable is declared as const."""
@@ -122,7 +153,8 @@ class SemanticAnalyzer:
                 self._error(f"Array '{array_name}' not declared", line_num, ErrorCode.UNDEFINED_SYMBOL)
             return
             
-        if not self._get_decl(name):
+        decl = self._get_decl(name)
+        if not decl:
             self._error(f"Variable '{name}' not declared", line_num, ErrorCode.UNDEFINED_SYMBOL)
     
     def _check_const_assignment(self, name: str, line_num: int) -> None:
@@ -159,22 +191,105 @@ class SemanticAnalyzer:
         raise CompilerError(message, line_num, error_code, self.z_file)
     
     def _handle_fndef(self, operands: List[str], line_num: int) -> None:
-        """Handle function definition."""
+        """Handle function definition.
+        
+        The lexer provides operands in the format:
+        ['func_name', 'param1_type', 'param1_name', 'param2_type', 'param2_name', ..., 'return_type']
+        """
+        print(f"DEBUG - _handle_fndef operands: {operands}")  # Debug print
         if not operands:
             return
             
-        # Extract function name, parameters, and return type
+        # The first operand is the function name
         func_name = operands[0]
+        
+        # Create a simple string key for the function
+        func_key = f"func_{func_name}"
+        
+        # Check for duplicate function declaration
+        for key in self.declarations:
+            if isinstance(key, tuple) and len(key) == 2 and key[1] == func_key:
+                self._error(
+                    f"Duplicate function declaration: '{func_name}'",
+                    line_num,
+                    ErrorCode.DUPLICATE_DECLARATION
+                )
+                return
+        
+        # Parse parameters (pairs of type and name)
+        params = []
+        i = 1  # Start after function name
+        
+        # Look for parameters (pairs of type and name)
+        while i + 1 < len(operands):
+            param_type = operands[i]
+            param_name = operands[i + 1]
+            
+            # Check if we've reached the return type
+            if param_type == '->':
+                i += 1  # Skip the '->'
+                break
+                
+            if param_type not in types_set:
+                self._error(
+                    f"Invalid parameter type: '{param_type}'",
+                    line_num,
+                    ErrorCode.INVALID_TYPE
+                )
+                
+            params.append((param_name, param_type))
+            i += 2  # Move to next parameter pair
+        
+        # The remaining operand is the return type (default to 'void' if not specified)
+        return_type = operands[-1] if i < len(operands) else 'void'
+        
+        # Validate return type
+        if return_type not in types_set and return_type != 'void':
+            self._error(
+                f"Invalid return type: '{return_type}'",
+                line_num,
+                ErrorCode.INVALID_TYPE
+            )
+            return_type = 'void'  # Default to void on error
+        
+        # Initialize function context
         self.current_function = func_name
         self.func_depth = 0
         
-        # Find return type if specified
-        if '->' in ' '.join(operands):
-            ret_type_idx = operands.index('->') + 1
-            if ret_type_idx < len(operands):
-                self.return_type = operands[ret_type_idx]
-            else:
-                self.return_type = None
+        # Store function declaration with both simple and tuple keys for backward compatibility
+        func_decl = {
+            'kind': 'function',
+            'name': func_name,
+            'params': params,
+            'return_type': return_type,
+            'line': line_num
+        }
+        
+        # Store with simple string key
+        self.declarations[func_key] = func_decl
+        
+        # Also store with tuple key for backward compatibility
+        tuple_key = (None, func_name)
+        self.declarations[tuple_key] = func_decl
+        
+        # Add parameters to the declarations with function scope
+        for param_name, param_type in params:
+            param_key = f"{func_name}_{param_name}"
+            param_decl = {
+                'kind': 'parameter',
+                'name': param_name,
+                'type': param_type,
+                'function': func_name,
+                'line': line_num
+            }
+            self.declarations[param_key] = param_decl
+            
+            # Also store with tuple key for backward compatibility
+            param_tuple_key = (func_name, param_name)
+            self.declarations[param_tuple_key] = param_decl
+        
+        # Set current return type for return statement validation
+        self.return_type = return_type
     
     def _handle_loop_start(self, op: str, operands: List[str], line_num: int) -> None:
         """Handle the start of a loop (FOR/WHILE)."""
@@ -314,36 +429,113 @@ class SemanticAnalyzer:
             )
     
     def _handle_call(self, operands: List[str], line_num: int) -> None:
-        """Handle function calls."""
+        """Handle function calls.
+        
+        Format: CALL <func_name> [arg1 arg2 ...] [-> return_var]
+        """
+        print(f"DEBUG - _handle_call operands: {operands}")  # Debug print
+        
         if not operands:
+            self._error("Function name expected after CALL", line_num, ErrorCode.SYNTAX_ERROR)
             return
             
+        # Extract function name and arguments
         func_name = operands[0]
+        args = []
+        return_var = None
+        
+        # Check for return value assignment (-> return_var)
+        if '->' in operands:
+            arrow_idx = operands.index('->')
+            if arrow_idx < len(operands) - 1:
+                return_var = operands[arrow_idx + 1]
+            # Arguments are everything between function name and ->
+            args = operands[1:arrow_idx]
+        else:
+            # Check if the last operand is the return variable without ->
+            # This handles the case: CALL fibonacci(count) result
+            if len(operands) > 2 and '->' not in operands:
+                return_var = operands[-1]
+                args = operands[1:-1]  # Everything between function name and return_var
+            else:
+                # All operands after function name are arguments
+                args = operands[1:]
+        
+        print(f"DEBUG - After initial parsing - func_name: {func_name}, args: {args}, return_var: {return_var}")
+            
+        # Handle function calls with parentheses like 'fibonacci(count)'
+        if len(args) == 1 and args[0].startswith('(') and args[0].endswith(')'):
+            # Extract the argument from inside the parentheses
+            arg_str = args[0][1:-1]  # Remove the parentheses
+            args = [arg_str] if arg_str else []
+            print(f"DEBUG - After handling parentheses - args: {args}")
+        elif len(args) == 1 and args[0].endswith(')'):
+            # Handle case like 'fibonacci(count' (missing closing parenthesis)
+            self._error("Missing opening parenthesis in function call", line_num, ErrorCode.SYNTAX_ERROR)
+        elif len(args) == 1 and args[0].startswith('('):
+            # Handle case like 'fibonacci(count' (missing closing parenthesis)
+            self._error("Missing closing parenthesis in function call", line_num, ErrorCode.SYNTAX_ERROR)
         
         # Check if function exists
         func_decl = self._get_decl(func_name, None)  # Functions are always in global scope
         if not func_decl or func_decl.get("kind") != "function":
-            self._error(f"Function '{func_name}' not declared", line_num, ErrorCode.UNDEFINED_SYMBOL)
+            self._error(
+                f"Function '{func_name}' not declared", 
+                line_num, 
+                ErrorCode.UNDEFINED_SYMBOL
+            )
             return
             
-        # Check return value assignment if present
-        if len(operands) > 1 and '->' in operands:
-            arrow_idx = operands.index('->')
-            if arrow_idx < len(operands) - 1:
-                ret_var = operands[arrow_idx + 1]
-                self._check_variable_exists(ret_var, line_num)
-                self._check_const_assignment(ret_var, line_num)
+        # Get function signature
+        expected_params = func_decl.get("params", [])
+        return_type = func_decl.get("return_type", "void")
+        
+        # Check argument count
+        if len(args) != len(expected_params):
+            self._error(
+                f"Function '{func_name}' expects {len(expected_params)} arguments, got {len(args)}",
+                line_num,
+                ErrorCode.INVALID_OPERAND
+            )
+            return
+            
+        # Check argument types
+        for i, (arg, (param_name, param_type)) in enumerate(zip(args, expected_params), 1):
+            arg_type = self._infer_type(arg)
+            
+            # If type couldn't be inferred, check if it's a variable
+            if not arg_type and not self._is_literal(arg):
+                self._check_variable_exists(arg, line_num)
+                arg_type = self._get_type(arg)
+            
+            if arg_type and arg_type != param_type:
+                self._error(
+                    f"Argument {i} to '{func_name}': expected {param_type}, got {arg_type}",
+                    line_num,
+                    ErrorCode.TYPE_MISMATCH
+                )
+        
+        # Handle return value assignment if present
+        if return_var is not None:
+            if return_type == "void":
+                self._error(
+                    f"Cannot capture return value from void function '{func_name}'",
+                    line_num,
+                    ErrorCode.TYPE_MISMATCH
+                )
+                return
                 
-                # Check return type compatibility
-                ret_type = func_decl.get("return_type")
-                if ret_type and ret_type != "void":
-                    var_type = self._get_type(ret_var)
-                    if var_type and var_type != ret_type:
-                        self._error(
-                            f"Cannot assign {ret_type} return value to {var_type} variable '{ret_var}'",
-                            line_num,
-                            ErrorCode.TYPE_MISMATCH
-                        )
+            self._check_variable_exists(return_var, line_num)
+            self._check_const_assignment(return_var, line_num)
+            
+            # Check return type compatibility
+            var_type = self._get_type(return_var)
+            if var_type and var_type != return_type:
+                self._error(
+                    f"Cannot assign {return_type} return value to {var_type} variable '{return_var}'",
+                    line_num,
+                    ErrorCode.TYPE_MISMATCH
+                )
     
     def _handle_ret(self, operands: List[str], line_num: int) -> None:
         """Handle return statements."""
@@ -500,8 +692,23 @@ class SemanticAnalyzer:
     
     # Helper methods for type inference and checking
     
-    def _infer_type(self, value: str) -> Optional[str]:
-        """Infer the type of a value (literal or variable)."""
+    def _infer_type(self, value) -> Optional[str]:
+        """Infer the type of a value (literal or variable).
+        
+        Args:
+            value: Can be a string or a list of strings (for expressions)
+        """
+        # If value is a list, try to infer type from its elements
+        if isinstance(value, list):
+            if not value:  # Empty list
+                return None
+            # For non-empty lists, try to infer type from the first element
+            return self._infer_type(value[0])
+            
+        # Handle string values
+        if not isinstance(value, str):
+            return None
+            
         if value in {"true", "false"}:
             return "bool"
         elif value.isdigit():
@@ -510,8 +717,12 @@ class SemanticAnalyzer:
             return "float"  # Could be float or double, default to float
         elif value.startswith('"') and value.endswith('"'):
             return "string"
-        elif value in self.declarations:
-            return self._get_type(value)
+            
+        # Check if it's a variable
+        decl = self._get_decl(value)
+        if decl:
+            return decl.get('type')
+            
         return None
     
     def _check_value_type(self, value: str, expected_type: str, line_num: int) -> None:
@@ -524,12 +735,69 @@ class SemanticAnalyzer:
                 ErrorCode.TYPE_MISMATCH
             )
     
-    def _is_literal(self, value: str) -> bool:
-        """Check if a value is a literal (not a variable)."""
-        return (value in {"true", "false"} or
-                value.isdigit() or
-                value.replace('.', '', 1).isdigit() or
-                (value.startswith('"') and value.endswith('"')))
+    def _is_literal(self, value) -> bool:
+        """Check if a value is a literal (number, string, etc.).
+        
+        Args:
+            value: Can be a string or a list of strings
+        """
+        # If it's a list, check if all elements are literals
+        if isinstance(value, list):
+            return all(self._is_literal(v) for v in value)
+            
+        # Handle string values
+        if not isinstance(value, str):
+            return False
+            
+        if value in {"true", "false"}:
+            return True
+        try:
+            float(value)  # Number literal
+            return True
+        except ValueError:
+            return value.startswith('"') and value.endswith('"')  # String literal
+            
+    def _check_return_type(self, value, line_num: int) -> None:
+        """Check if the return value type matches the function's return type.
+        
+        Args:
+            value: Can be a string or a list of strings (for multiple return values)
+            line_num: Line number for error reporting
+        """
+        if not self.return_type or self.return_type == "void":
+            if value and value != ["0"]:  # Only allow empty return in void functions
+                self._error("Void function should not return a value", line_num, ErrorCode.TYPE_MISMATCH)
+            return
+            
+        # For non-void functions, a return value is required
+        if not value or (isinstance(value, list) and not value):
+            self._error("Function must return a value", line_num, ErrorCode.TYPE_MISMATCH)
+            return
+            
+        # If value is a list, use the first element
+        if isinstance(value, list):
+            value = value[0] if value else ""
+            
+        # Get the type of the returned value
+        value_type = self._infer_type(value)
+        
+        # If type couldn't be inferred, check if it's a variable
+        if not value_type and not self._is_literal(value):
+            # Check if it's a variable name (must be a string)
+            if isinstance(value, str):
+                self._check_variable_exists(value, line_num)
+                value_type = self._get_type(value)
+            else:
+                self._error("Invalid return value", line_num, ErrorCode.SYNTAX_ERROR)
+                return
+            
+        # Check type compatibility if we have type information
+        if value_type and value_type != self.return_type:
+            self._error(
+                f"Expected return type {self.return_type}, got {value_type}",
+                line_num,
+                ErrorCode.TYPE_MISMATCH
+            )
 
 # Map opcodes to handler methods
 HANDLERS = {
