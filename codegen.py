@@ -200,7 +200,7 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
         "    return (char*)arr->data + index * arr->elem_size;",
         "}",
         "",
-        "// Print array function - simplified to use printf",
+        "// Print array function ",
         "void print_array(Array* arr) {",
         "    if (!arr) {",
         "        printf(\"NULL\\n\");",
@@ -224,11 +224,22 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
         "    printf(\"]\\n\");",
         "}",
         "",
-        "// Single printf function for all types",
-        "#define print_double(d) printf(\"%g\\n\", d)",
-        "#define print_int(i) printf(\"%d\\n\", i)",
-        "#define print_bool(b) printf(\"%s\\n\", (b) ? \"true\" : \"false\")",
-        "#define print_str(s) printf(\"%s\\n\", s)",
+        "// Print functions",
+        "void print_int(int i) {",
+        "    printf(\"%d\\n\", i);",
+        "}",
+        "",
+        "void print_bool(int b) {",
+        "    printf(\"%s\\n\", (b) ? \"true\" : \"false\");",
+        "}",
+        "",
+        "void print_str(const char* s) {",
+        "    printf(\"%s\\n\", s);",
+        "}",
+        "",
+        "void print_ptr(const void* p) {",
+        "    printf(\"%p\\n\", p);",
+        "}",
         "void error_exit(int code, const char* msg) {",
         "    fprintf(stderr, \"Error [E%d]: %s\\n\", code, msg);",
         "    exit(code);",
@@ -737,61 +748,41 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
                 c_lines.append(f'{prefix}printf("\n");')
                 continue
                 
-            # Process all operands to build format string and arguments
-            format_parts = []
-            format_args = []
-            
+            # Process each operand and generate appropriate print function calls
             for operand in operands:
                 # Check if this is a string literal
                 if operand.startswith('"') and operand.endswith('"'):
-                    # Add the string literal directly to the format string
-                    format_parts.append(operand[1:-1])
+                    # Use print_str for string literals
+                    c_lines.append(f'{prefix}print_str({operand});')
                 # Check if this is a variable
                 elif operand in variable_types:
                     var_type = variable_types[operand]
                     if var_type == "int":
-                        format_parts.append("%d")
-                        format_args.append(operand)
+                        c_lines.append(f'{prefix}print_int({operand});')
                     elif var_type == "bool":
-                        format_parts.append("%s")
-                        format_args.append(f'({operand} ? "true" : "false")')
+                        c_lines.append(f'{prefix}print_bool({operand});')
                     elif var_type == "string":
-                        format_parts.append("%s")
-                        format_args.append(operand)
+                        c_lines.append(f'{prefix}print_str({operand});')
                     elif var_type in ["float", "double"]:
-                        format_parts.append("%g")
-                        format_args.append(operand)
+                        c_lines.append(f'{prefix}print_double({operand});')
+                    elif var_type.endswith('*'):  # Handle pointer types
+                        c_lines.append(f'{prefix}print_ptr({operand});')
                     else:
-                        # Default to %s for unknown types
-                        format_parts.append("%s")
-                        format_args.append(operand)
+                        # Default to print_str for unknown types
+                        c_lines.append(f'{prefix}print_str({operand});')
                 # Check if this is a number
                 elif operand.replace('.', '', 1).isdigit() or (operand.startswith('-') and operand[1:].replace('.', '', 1).isdigit()):
                     # Numeric literal
                     if '.' in operand or 'e' in operand.lower():
-                        format_parts.append("%g")
+                        c_lines.append(f'{prefix}print_double({operand});')
                     else:
-                        format_parts.append("%d")
-                    format_args.append(operand)
+                        c_lines.append(f'{prefix}print_int({operand});')
                 # Check for boolean literals
                 elif operand == "true" or operand == "false":
-                    format_parts.append("%s")
-                    format_args.append('"true"' if operand == "true" else '"false"')
+                    c_lines.append(f'{prefix}print_bool(1);' if operand == "true" else f'{prefix}print_bool(0);')
                 else:
-                    # Default to string
-                    format_parts.append("%s")
-                    format_args.append(f'"{operand}"')
-            
-            # Combine format parts and add newline
-            format_str = '"' + ''.join(format_parts) + '\\n"'
-            
-            # Generate the printf statement
-            if format_args:
-                args_str = ', '.join([format_str] + format_args)
-                c_lines.append(f'{prefix}printf({args_str});')
-            else:
-                # No arguments, just print the format string
-                c_lines.append(f'{prefix}printf({format_str});')
+                    # Default to print_str for unknown literals
+                    c_lines.append(f'{prefix}print_str("{operand}");')
             continue
         if op == "ERROR":
             msg = " ".join(operands)
