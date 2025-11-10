@@ -743,6 +743,13 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
             c_lines.extend(add_overflow_check(prefix, '%', a, b, f"{sanitized_cache[res]}", line_num))
             continue
         if op == "PRINT":
+            printing_types = {
+                "int": "d",
+                "bool": "d",
+                "string": "s",
+                "double": "f",
+                "pointer": "p"
+            }
             # First, handle the case where there are no operands (just print a newline)
             if not operands:
                 c_lines.append(f'{prefix}printf("\n");')
@@ -754,6 +761,23 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
                 if operand.startswith('"') and operand.endswith('"'):
                     # Use print_str for string literals
                     c_lines.append(f'{prefix}print_str({operand});')
+                # Check if this is a pointer dereference (e.g., *ptr)
+                elif operand.startswith('*') and len(operand) > 1:
+                    ptr_name = operand[1:]  # Remove the *
+                    if ptr_name in variable_types and variable_types[ptr_name].endswith('*'):
+                        # Get the base type (e.g., 'int' from 'int*')
+                        base_type = variable_types[ptr_name].rstrip('*')
+                        if base_type == 'int':
+                            c_lines.append(f'{prefix}print_int(*{ptr_name});')
+                        elif base_type == 'bool':
+                            c_lines.append(f'{prefix}print_bool(*{ptr_name});')
+                        elif base_type == 'string':
+                            c_lines.append(f'{prefix}print_str(*{ptr_name});')
+                        elif base_type in ['float', 'double']:
+                            c_lines.append(f'{prefix}print_double(*{ptr_name});')
+                        else:
+                            # Default to printing as pointer if base type is unknown
+                            c_lines.append(f'{prefix}print_ptr(*{ptr_name});')
                 # Check if this is a variable
                 elif operand in variable_types:
                     var_type = variable_types[operand]
