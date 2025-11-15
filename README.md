@@ -11,14 +11,13 @@
 ### For Users
 
 1. **Get `z.exe`** (single file - no installation needed)
-2. **Setup**: `z.exe -begin` or `z.exe -setup` (installs current z.exe and adds to PATH)
+2. **Setup**: `run z.exe` or `double-click executable` (installs current z.exe and adds to PATH)
 3. **Compile**: `z program.z` (creates program.exe)
 4. **Update**: `z -update` (gets the latest release and replaces the installed `z.exe`)
 
 ```bash
 # Download z.exe, then:
-z.exe -begin          # One-time setup (installs current z.exe)
-z.exe -setup          # Same as -begin
+z.exe                 # Just double-click or run ./z
 z -v                  # Check version
 z hello.z             # Compile to hello.exe
 z program.z -f c      # Generate C source
@@ -33,7 +32,7 @@ z --help              # Show all options
 python -m PyInstaller --onefile --name=z --console --clean main.py
 
 # Test
-z.exe -begin
+./z
 z test.z
 ```
 
@@ -52,11 +51,9 @@ z test.z
 - **System-wide PATH first**: Tries to update system PATH; falls back to user PATH if needed
 - **Smart replacement**: Finds other z.exe files on PATH and prompts to replace them
 - **PATH deduplication**: Ensures no duplicate entries while putting new install first
-- **Linux/macOS**: Not implemented in v0.8 (Windows-first release)
+- **Linux/macOS**: Not implemented in v0.11.5 (Windows-first release)
 - **⚠ Note**: PATH changes require opening a new terminal to take effect
 
-**What `z -update` does:**
-- Downloads the latest release from GitHub and replaces the existing `z.exe` found in PATH (backs up the old file as `.bak` when possible).
 
 ---
 
@@ -78,16 +75,6 @@ z program.z -c gcc             # Use GCC instead of Clang
 z program.z -c clang           # Use Clang (default)
 ```
 
-### Setup & Update Commands
-
-```bash
-z -begin         # Install current Z compiler to PATH
-z -setup         # Same as -begin
-z -v             # Show version
-z --version      # Show version
-z -update | -u   # Update installed Z to latest release
-z --help         # Show help
-```
 
 ---
 
@@ -99,7 +86,6 @@ z --help         # Show help
 - ✅ **Cross-platform** (Windows, Linux, macOS)
 - ✅ **No external dependencies**
 - ✅ **Automatic C compiler detection**
-- ✅ **Built-in updater** (`z -update`)
 
 ### 🛡️ Enhanced Robustness & Security
 - ✅ **Path traversal protection** for input/output files
