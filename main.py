@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional, Tuple
 
-from setup_update import Colors, print_colored, is_in_path, run_setup, show_setup_message, update_z_compiler, handle_cli_setup_and_version, print_version, VERSION
+from setup import Colors, print_colored, is_in_path, run_setup, show_setup_message, handle_cli_setup_and_version, print_version, VERSION
 
 try:
     from lexer import parse_z_file
@@ -41,12 +41,10 @@ def format_time(seconds):
 HELP_TEXT = f"""
 🔧 Z Compiler v{VERSION}
 
-SETUP/UPDATE:
-    z -begin      Install Z compiler to PATH
-    z -setup      Install Z compiler to PATH (alias for -begin)
-    z -update     Update Z compiler to latest release (alias: -u)
-    z -v          Show version
-    z --version   Show version
+SETUP:
+    z                Install Z compiler to PATH
+    z -v             Show version
+    z --version      Show version
 
 USAGE:
     z <source.z> [options]
@@ -520,22 +518,8 @@ def parse_args(args):
     # Handle setup and run commands first
     if len(args) >= 2 and args[0] == "run":
         return "RUN", args[1], None, "exe", False, True
-    if len(args) == 1 and args[0] in ["-begin", "-setup"]:
-        return "SETUP", None, None, None, False, False
-    if len(args) == 1 and args[0] in ["-update", "-u"]:
-        return "UPDATE", None, None, None, False, False
-    
     if len(args) == 0:
-        # Check if we're running from PATH or repo directory
-        current_exe = Path(sys.executable).resolve()
-        script_dir = Path(__file__).parent.resolve() if not getattr(sys, 'frozen', False) else Path(sys.executable).parent.resolve()
-        running_from_repo = current_exe.parent == script_dir
-        
-        if not running_from_repo and not is_in_path():
-            show_setup_message()
-        else:
-            print(HELP_TEXT)
-        sys.exit(0)
+        return "SETUP", None, None, None, False, False
     
     input_file = None
     output_path = None
@@ -555,10 +539,10 @@ def parse_args(args):
             print_version()
             sys.exit(0)
         
-        elif arg in ["-begin", "-setup"]:
-            return "SETUP", None, None, None, False, False
-        elif arg in ["-update", "-u"]:
-            return "UPDATE", None, None, None, False, False
+        elif arg in ["-begin", "-setup", "-update", "-u"]:
+            print_colored(f"Error: '{arg}' is not an alias ", Colors.RED)
+            print(HELP_TEXT)
+            sys.exit(1)
             
         elif arg == "-f" or arg == "--format":
             if i + 1 >= len(args):
@@ -647,8 +631,6 @@ if __name__ == "__main__":
         cmd = result[0]
         if cmd == "SETUP":
             sys.exit(run_setup())
-        if cmd == "UPDATE":
-            sys.exit(0 if update_z_compiler() else 1)
         if cmd == "RUN":
             input_file = result[1]
             output_path = os.path.splitext(input_file)[0] + ".exe"
