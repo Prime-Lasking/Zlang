@@ -10,7 +10,7 @@ TOKEN_RE = re.compile(r'"[^"]*"|\S+')
 
 OPS = {"MOV", "ADD", "SUB", "MUL", "DIV", "PRINT", "READ", "MOD", "INC", "DEC", "CALL", "RET", "ERROR",
        "FNDEF", "FN", "FOR", "WHILE", "IF", "ELSE", "ELIF", "PRINTSTR", "CONST",
-       "ARR", "LEN", "PUSH", "POP","PTR"}
+       "ARR", "LEN", "PUSH", "POP","PTR","IMPORT"}
 
 # Array types
 ARRAY_TYPES = {"Aint", "Afloat", "Adouble", "Abool", "Astring"}
@@ -189,6 +189,33 @@ def parse_z_file(z_file: str) -> Tuple[list, set, Dict[Tuple[Optional[str], str]
             # Check for return value specification (-> ret)
             if '->' in joined:
                 call_expr, ret_var = [s.strip() for s in joined.split('->', 1)]
+            else:
+                # Check for space-separated return variable at the end
+                # This should be checked before parsing parentheses to handle cases like "add(x,y) a"
+                parts = joined.split()
+                if len(parts) > 1:
+                    # Check if the last part could be a return variable (not a function argument)
+                    last_part = parts[-1]
+                    # If there are parentheses, check if the last part is outside them
+                    if '(' in joined and ')' in joined:
+                        # Count parentheses to find the actual end of the function call
+                        paren_count = 0
+                        for i, char in enumerate(joined):
+                            if char == '(':
+                                paren_count += 1
+                            elif char == ')':
+                                paren_count -= 1
+                                if paren_count == 0:
+                                    # Everything after the closing parenthesis could be the return variable
+                                    after_paren = joined[i+1:].strip()
+                                    if after_paren and not after_paren.startswith('->'):
+                                        ret_var = after_paren
+                                        call_expr = joined[:i+1].strip()
+                                    break
+                    else:
+                        # No parentheses, so the last part is likely the return variable
+                        ret_var = last_part
+                        call_expr = ' '.join(parts[:-1])
             
             # Parse function name and arguments
             if '(' in call_expr and call_expr.endswith(')'):
@@ -200,13 +227,6 @@ def parse_z_file(z_file: str) -> Tuple[list, set, Dict[Tuple[Optional[str], str]
                 # Function call without arguments: name
                 fname = call_expr.strip()
                 args = []
-            
-            # If we didn't find a return variable yet, check for space-separated return var
-            if ret_var is None and ' ' in joined and not ('(' in joined and ')' in joined):
-                parts = joined.split()
-                if len(parts) > 1:
-                    fname = parts[0]
-                    ret_var = parts[1]
             
             if ret_var is None:
                 ret_var = "_"

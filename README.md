@@ -1,4 +1,4 @@
-# Z Compiler v0.11
+# Z Compiler v0.12
 
 🚀 The Compiler for the Z programming language.
 
@@ -51,7 +51,7 @@ z test.z
 - **System-wide PATH first**: Tries to update system PATH; falls back to user PATH if needed
 - **Smart replacement**: Finds other z.exe files on PATH and prompts to replace them
 - **PATH deduplication**: Ensures no duplicate entries while putting new install first
-- **Linux/macOS**: Not implemented in v0.11.5 (Windows-first release)
+- **Linux/macOS**: Not implemented in v0.12 (Windows-first release)
 - **⚠ Note**: PATH changes require opening a new terminal to take effect
 
 
@@ -84,6 +84,7 @@ z program.z -c clang           # Use Clang (default)
 - ✅ **Single executable distribution**
 - ✅ **Integrated PATH installation**
 - ✅ **Cross-platform** (Windows, Linux, macOS)
+- ✅ **Module system with IMPORT statements** - Import functions from other Z files
 - ✅ **No external dependencies**
 - ✅ **Automatic C compiler detection**
 
@@ -118,7 +119,18 @@ Z provides a straightforward way to write procedural programs with explicit inst
 
 ### 🚀 Quick Example
 
-**Input (`example.z`)**
+**Basic Import Example**
+```z
+// main.z
+IMPORT "math_utils.z"
+FN main():
+    MOV int x 42
+    MOV int y 21
+    CALL add(x,y) result
+    PRINT result
+```
+
+**Fibonacci Example**
 ```z
 FN fibonacci(int n) -> int:
     IF n <= 1:
@@ -246,6 +258,7 @@ FOR variable start..end:
 ```
 
 ### I/O Operations
+- `IMPORT "filename.z"` - Import functions from another Z file
 - `PRINT value` - Print a number
 - `PRINTSTR "text"` - Print a string
 - `READ variable` - Read input (backward compatibility)
@@ -334,6 +347,12 @@ The compiler automatically detects available C compilers.
 
 ### For C Generation:
 - No additional requirements (works with just `z.exe`)
+
+---
+
+## 📋 Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for detailed version history and updates.
 
 ---
 

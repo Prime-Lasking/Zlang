@@ -14,7 +14,7 @@ from typing import Optional
 from urllib.request import Request, urlopen
 
 # Version information
-VERSION = "0.11.5"
+VERSION = "0.12"
 
 # Initialize colorama for Windows ANSI support
 try:
@@ -287,7 +287,7 @@ def is_in_path() -> bool:
 def run_setup() -> int:
     """Run the new setup process that installs current z.exe and handles PATH updates."""
     if not is_windows():
-        print_colored("z -setup is Windows-first. Non-Windows setup is not implemented in this version.", Colors.RED)
+        print_colored("z -setup is Windows-first. Non-Windows setup is not implemented in v0.12.", Colors.RED)
         return 1
     
     print_colored("🚀 Z Compiler Setup Starting...", Colors.BOLD + Colors.CYAN)

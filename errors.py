@@ -50,6 +50,7 @@ class ErrorCode(Enum):
     # Configuration errors (71-80)
     CONFIGURATION_ERROR = 71
     MISSING_DEPENDENCY = 72
+    IMPORT_ERROR = 73
     
     # Unexpected errors (90-99)
     UNEXPECTED_ERROR = 90

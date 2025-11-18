@@ -1,4 +1,5 @@
 import re
+import os
 from errors import CompilerError, ErrorCode
 
 # Precompiled regexes for better performance
@@ -99,6 +100,79 @@ def translate_logical_operators(condition):
     condition = condition.replace(' NOT', ' !')
     condition = condition.replace('NOT', '!')
     return condition
+
+
+def compile_imported_file(import_path):
+    """Compile an imported Zlang file and extract non-main functions."""
+    try:
+        # Import here to avoid circular imports
+        from lexer import parse_z_file
+        from optimizer import optimize_instructions
+        from semantics import validate_const_and_types
+        
+        # Parse the imported file
+        instructions, variables, declarations = parse_z_file(import_path)
+        
+        # Optimize the instructions
+        optimized = optimize_instructions(instructions, import_path)
+        
+        # Validate semantics
+        validate_const_and_types(optimized, declarations, import_path)
+        
+        # Generate C code
+        c_code = generate_c_code(optimized, variables, declarations, z_file=import_path)
+        
+        # Extract non-main functions
+        return extract_non_main_functions(c_code)
+        
+    except Exception as e:
+        raise CompilerError(f"Failed to compile imported file '{import_path}': {str(e)}", 
+                          error_code=ErrorCode.IMPORT_ERROR)
+
+
+def extract_non_main_functions(c_code):
+    """Extract all functions except main() from C code."""
+    lines = c_code.split('\n')
+    function_lines = []
+    in_function = False
+    brace_count = 0
+    function_start = -1
+    current_function_lines = []
+    
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        
+        # Detect function start (excluding main)
+        if (stripped.startswith('int ') or stripped.startswith('float ') or 
+            stripped.startswith('double ') or stripped.startswith('bool ') or
+            stripped.startswith('string ') or stripped.startswith('char ') or
+            stripped.startswith('void ')) and '(' in stripped and ')' in stripped:
+            
+            func_name = stripped.split('(')[0].strip().split()[-1]
+            
+            # Only include user-defined functions (those prefixed with z_) and skip main
+            if func_name != 'main' and func_name.startswith('z_'):
+                in_function = True
+                brace_count = 0
+                function_start = i
+                current_function_lines = [line]
+                
+                # Count opening braces in this line
+                brace_count += line.count('{') - line.count('}')
+        
+        elif in_function:
+            current_function_lines.append(line)
+            
+            # Update brace count
+            brace_count += line.count('{') - line.count('}')
+            
+            # Function ends when brace count returns to 0
+            if brace_count <= 0:
+                in_function = False
+                function_lines.extend(current_function_lines)
+                current_function_lines = []
+    
+    return function_lines
 
 
 def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
@@ -742,6 +816,10 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
                 sanitized_cache[res] = sanitize_identifier(res)
             c_lines.extend(add_overflow_check(prefix, '%', a, b, f"{sanitized_cache[res]}", line_num))
             continue
+        if op == "IMPORT":
+            file_name = operands[0]
+            if len(operands) == 1:
+                print()
         if op == "PRINT":
             printing_types = {
                 "int": "d",
@@ -816,6 +894,35 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
         if op == "RET":
             ret_val = operands[0] if operands else '0'
             c_lines.append(f"{prefix}return {ret_val};")
+            continue
+        
+        if op == "IMPORT":
+            file_name = operands[0]
+            if len(operands) == 1:
+                # Remove quotes if present
+                if file_name.startswith('"') and file_name.endswith('"'):
+                    file_name = file_name[1:-1]
+                
+                # Get the directory of the current Z file to resolve relative paths
+                current_dir = os.path.dirname(z_file)
+                import_path = os.path.join(current_dir, file_name)
+                
+                # If not found relative to current file, try absolute path
+                if not os.path.exists(import_path):
+                    import_path = file_name
+                
+                if os.path.exists(import_path):
+                    try:
+                        # Compile the imported file and extract non-main functions
+                        imported_functions = compile_imported_file(import_path)
+                        if imported_functions:
+                            # Add the imported functions before the current function
+                            c_lines.extend(imported_functions)
+                    except Exception as e:
+                        # If import fails, add a comment and continue
+                        c_lines.append(f"{prefix}// Failed to import {file_name}: {str(e)}")
+                else:
+                    c_lines.append(f"{prefix}// Import file not found: {file_name}")
             continue
 
         if op == "PTR":

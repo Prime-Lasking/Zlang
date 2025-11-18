@@ -1,4 +1,5 @@
 """Semantic checks for ZLang, including const enforcement, type checking, and semantic validation."""
+import os
 from typing import Dict, Tuple, Optional, List, Set, Any
 from errors import CompilerError, ErrorCode
 
@@ -695,7 +696,87 @@ class SemanticAnalyzer:
             # Regular variable
             elif not self._is_literal(var):
                 self._check_variable_exists(var, line_num)
-    
+    def _handle_import(self, operands: List[str], line_num: int) -> None:
+        """Handle the IMPORT statement."""
+        if not operands:
+            self._error("IMPORT requires at least one argument", line_num, ErrorCode.SYNTAX_ERROR)
+            return
+        if len(operands) >= 2:
+            self._error("IMPORT cannot have more than one argument", line_num, ErrorCode.SYNTAX_ERROR)
+            return
+        
+        # Get the import file path
+        file_name = operands[0]
+        if file_name.startswith('"') and file_name.endswith('"'):
+            file_name = file_name[1:-1]
+        
+        # Resolve the file path
+        current_dir = os.path.dirname(self.z_file)
+        import_path = os.path.join(current_dir, file_name)
+        
+        # If not found relative to current file, try absolute path
+        if not os.path.exists(import_path):
+            import_path = file_name
+        
+        if not os.path.exists(import_path):
+            self._error(f"Import file not found: {file_name}", line_num, ErrorCode.FILE_NOT_FOUND)
+            return
+        
+        try:
+            # Import here to avoid circular imports
+            from lexer import parse_z_file
+            from optimizer import optimize_instructions
+            
+            # Parse the imported file
+            imported_instructions, imported_variables, imported_declarations = parse_z_file(import_path)
+            
+            # Optimize the instructions
+            imported_optimized = optimize_instructions(imported_instructions, import_path)
+            
+            # Register all function declarations from the imported file (except main)
+            for op, operands_list, import_line_num in imported_optimized:
+                if op == "FNDEF":
+                    func_name = operands_list[0]
+                    if func_name != "main":
+                        # Register the function declaration
+                        func_key = f"func_{func_name}"
+                        if func_key not in self.declarations:
+                            # Parse parameters from FNDEF operands: ['func_name', 'type1', 'param1', 'type2', 'param2', ..., 'return_type']
+                            params = []
+                            if len(operands_list) > 1:
+                                # Check if the last operand is a return type (not followed by a name)
+                                if len(operands_list) % 2 == 2:  # Even number of items after name -> last is return type
+                                    return_type = operands_list[-1]
+                                    param_operands = operands_list[1:-1]
+                                else:  # Odd number of items after name -> no explicit return type
+                                    return_type = 'int'  # Default return type for functions that return values
+                                    param_operands = operands_list[1:]
+                                
+                                # Parse parameter type-name pairs
+                                for i in range(0, len(param_operands), 2):
+                                    if i + 1 < len(param_operands):
+                                        param_type = param_operands[i]
+                                        param_name = param_operands[i + 1]
+                                        params.append((param_name, param_type))
+                            
+                            # Register the function declaration with the same structure as normal functions
+                            func_decl = {
+                                'kind': 'function',
+                                'name': func_name,
+                                'params': params,
+                                'return_type': return_type,
+                                'line': import_line_num
+                            }
+                            
+                            # Store with simple string key
+                            self.declarations[func_key] = func_decl
+                            
+                            # Also store with tuple key for backward compatibility
+                            tuple_key = (None, func_name)
+                            self.declarations[tuple_key] = func_decl
+                        
+        except Exception as e:
+            self._error(f"Failed to import '{file_name}': {str(e)}", line_num, ErrorCode.IMPORT_ERROR)
     def _handle_if_elif_else(self, op: str, operands: List[str], line_num: int) -> None:
         """Handle IF, ELIF, and ELSE statements."""
         if op == "ELSE":
@@ -875,7 +956,10 @@ HANDLERS = {
     "LEN": "_handle_len",
     
     # Error handling
-    "ERROR": "_handle_error"
+    "ERROR": "_handle_error",
+
+    # Modules
+    "IMPORT": "_handle_import"
 }
 
 # Add handler methods for each opcode
