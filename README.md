@@ -1,4 +1,9 @@
-# Z Compiler v0.11
+# Z Compiler v0.11.5
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Prime-lasking/zlang&type=timeline&legend=top-left)](https://www.star-history.com/#Prime-lasking/zlang&type=timeline&legend=top-left)
+---
+
 
 🚀 The Compiler for the Z programming language.
 
