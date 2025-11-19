@@ -1,7 +1,7 @@
 """Semantic checks for ZLang, including const enforcement, type checking, and semantic validation."""
 import os
 from typing import Dict, Tuple, Optional, List, Set, Any
-from errors import CompilerError, ErrorCode
+from errors import CompilerError, CompilerErrorCollection, ErrorCode
 
 # Supported primitive types
 types_set = {"int", "float", "double", "string", "bool"}
@@ -34,11 +34,18 @@ class SemanticAnalyzer:
         self.loop_depth: int = 0
         self.return_type: Optional[str] = None
         self.in_loop: bool = False
+        self.errors: List[CompilerError] = []
         
     def analyze(self) -> None:
         """Run the semantic analysis on all instructions."""
         for op, operands, line_num in self.instructions:
-            self._process_instruction(op, operands, line_num)
+            try:
+                self._process_instruction(op, operands, line_num)
+            except CompilerError as err:
+                self.errors.append(err)
+
+        if self.errors:
+            raise CompilerErrorCollection(self.errors)
     
     def _process_instruction(self, op: str, operands: List[str], line_num: int) -> None:
         """Process a single instruction with semantic checks."""

@@ -1,6 +1,6 @@
 """Error handling for the Z compiler (ZLang)."""
 from enum import Enum
-from typing import Optional
+from typing import List, Optional
 class ErrorCode(Enum):
     """Error codes for different types of errors in the Z compiler."""
     # File and I/O related errors (1-10)
@@ -83,3 +83,13 @@ class CompilerError(Exception):
             return f"line {self.line_num}: error: [{self.error_code}] {self.message}"
         else:
             return f"error: [{self.error_code}] {self.message}"
+
+class CompilerErrorCollection(Exception):
+    """Wrap multiple CompilerError instances so they can be reported together."""
+
+    def __init__(self, errors: List[CompilerError]):
+        self.errors = errors
+        super().__init__(self.__str__())
+
+    def __str__(self) -> str:
+        return "\n".join(str(error) for error in self.errors)

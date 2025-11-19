@@ -14,7 +14,7 @@ try:
     from lexer import parse_z_file
     from optimizer import optimize_instructions
     from codegen import generate_c_code
-    from errors import CompilerError, ErrorCode
+    from errors import CompilerError, CompilerErrorCollection, ErrorCode
     from semantics import validate_const_and_types
 except ImportError:
     # If running as standalone executable, modules might not be available
@@ -496,6 +496,10 @@ def compile_zlang(input_path: str, output_path: str, output_format: str, compile
                     traceback.print_exc()
                     sys.exit(1)
 
+    except CompilerErrorCollection as coll:
+        for err in coll.errors:
+            print_colored(f"✗ {err}", Colors.RED)
+        sys.exit(1)
     except CompilerError:
         # Clean up C file if compilation failed and we created one
         if abs_c_file and os.path.exists(abs_c_file):
