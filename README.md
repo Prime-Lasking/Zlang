@@ -189,11 +189,11 @@ FN main():
 ```z
 FN main():
     MOV int x 42
-    PTR int ptr x  # Create a pointer to x
+    PTR int ptr x  // Create a pointer to x
     
-    PRINT x     # Prints: 42
-    PRINT ptr   # Prints the memory address of x (e.g., 0x7ffd12345678)
-    PRINT *ptr  # Prints: 42 (dereferences the pointer)
+    PRINT x     // Prints: 42
+    PRINT ptr   // Prints the memory address of x (e.g., 0x7ffd12345678)
+    PRINT *ptr  // Prints: 42 (dereferences the pointer)
     
 ```
 
