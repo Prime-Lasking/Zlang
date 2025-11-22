@@ -9,8 +9,8 @@ IDENTIFIER_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
 TOKEN_RE = re.compile(r'"[^"]*"|\S+')
 
 OPS = {"MOV", "ADD", "SUB", "MUL", "DIV", "PRINT", "READ", "MOD", "INC", "DEC", "CALL", "RET", "ERROR",
-       "FNDEF", "FN", "FOR", "WHILE", "IF", "ELSE", "ELIF", "PRINTSTR", "CONST",
-       "ARR", "LEN", "PUSH", "POP","PTR","IMPORT"}
+       "FNDEF", "FN", "FOR", "WHILE", "IF", "ELSE", "ELIF", "PRINTSTR", "PRINTARR", "CONST",
+       "ARR", "LEN", "PUSH", "POP", "PTR", "IMPORT"}
 
 # Array types
 ARRAY_TYPES = {"Aint", "Afloat", "Adouble", "Abool", "Astring"}
@@ -112,11 +112,13 @@ def parse_z_file(z_file: str) -> Tuple[list, set, Dict[Tuple[Optional[str], str]
             # Handle array declaration format: ARR type name size [values...]
             parts = line_stripped.split()
             if len(parts) >= 4 and '[' in line and ']' in line:
-                # Extract array values as a single token
                 start_idx = line.find('[')
                 end_idx = line.rfind(']')
                 array_values = line[start_idx:end_idx+1]
-                tokens = parts[:3] + [array_values]
+
+                before_values = line[:start_idx].strip()
+                before_tokens = TOKEN_RE.findall(before_values)
+                tokens = before_tokens + [array_values]
             else:
                 tokens = TOKEN_RE.findall(line)
         else:

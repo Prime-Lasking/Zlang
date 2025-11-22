@@ -886,6 +886,15 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
                     # Default to print_str for unknown literals
                     c_lines.append(f'{prefix}print_str("{operand}");')
             continue
+        if op == "PRINTARR":
+            if len(operands) != 1:
+                c_lines.append(f'{prefix}// Error: PRINTARR requires exactly one array variable')
+                continue
+                
+            arr_name = operands[0]
+            c_lines.append(f'{prefix}print_array({arr_name});')
+            continue
+
         if op == "ERROR":
             msg = " ".join(operands)
             msg = msg.replace('"', '')

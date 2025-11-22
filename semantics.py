@@ -29,6 +29,7 @@ class SemanticAnalyzer:
         self.instructions = instructions
         self.declarations = declarations
         self.z_file = z_file
+        self.current_scope = None  # Initialize current_scope
         self.current_function: Optional[str] = None
         self.func_depth: int = 0
         self.loop_depth: int = 0
@@ -97,38 +98,29 @@ class SemanticAnalyzer:
     
     def _get_decl(self, name: str, scope: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Get variable/function declaration from the current or global scope."""
-        # If name is a list, use the first element (for handling return values)
         if isinstance(name, list):
-            if not name:  # Empty list
+            if not name:
                 return None
-            name = name[0]  # Use the first element
-            
+            name = name[0]
+
         scope = scope or self.current_function
-        
-        # First try with the current scope
+
         if scope:
-            # Try with a string key first
-            key = f"{scope}_{name}" if scope else name
-            if key in self.declarations:
-                return self.declarations[key]
-                
-            # Then try with a tuple key for backward compatibility
-            tuple_key = (scope, name)
-            if tuple_key in self.declarations:
-                return self.declarations[tuple_key]
-        
-        # Then try with global scope
-        if scope is not None:  # Only if we haven't already tried None scope
-            # Try with a string key
-            if name in self.declarations:
-                return self.declarations[name]
-                
-            # Then try with a tuple key for backward compatibility
-            global_key = (None, name)
-            if global_key in self.declarations:
-                return self.declarations[global_key]
-        
-        # If we get here, the variable wasn't found
+            scoped_key = (scope, name)
+            if scoped_key in self.declarations:
+                return self.declarations[scoped_key]
+
+            scoped_name = f"{scope}_{name}"
+            if scoped_name in self.declarations:
+                return self.declarations[scoped_name]
+
+        if name in self.declarations:
+            return self.declarations[name]
+
+        global_key = (None, name)
+        if global_key in self.declarations:
+            return self.declarations[global_key]
+
         return None
     
     def _is_const(self, name: str, scope: Optional[str] = None) -> bool:
@@ -198,6 +190,34 @@ class SemanticAnalyzer:
         """Raise a semantic error."""
         raise CompilerError(message, line_num, error_code, self.z_file)
     
+    def _handle_fn(self, operands: List[str], line_num: int) -> None:
+        """Handle function declaration.
+        
+        This is called for the FN keyword to set up the function context.
+        """
+        if not operands:
+            self._error("Function name expected", line_num, ErrorCode.SYNTAX_ERROR)
+            return
+            
+        func_name = operands[0].rstrip(':')
+        self.current_function = func_name  # Set the current function name
+        self.current_scope = func_name     # Also set the current scope
+        self.return_type = "void"  # Default return type
+        
+        # Add the function to declarations
+        func_key = f"func_{func_name}"
+        self.declarations[func_key] = {
+            'kind': 'function',
+            'name': func_name,
+            'params': [],  # Will be filled in by FNDEF
+            'return_type': 'void',
+            'line': line_num
+        }
+        
+        # Also add with tuple key for backward compatibility
+        tuple_key = (None, func_name)
+        self.declarations[tuple_key] = self.declarations[func_key]
+        
     def _handle_fndef(self, operands: List[str], line_num: int) -> None:
         """Handle function definition.
         
@@ -591,37 +611,65 @@ class SemanticAnalyzer:
                     )
     
     def _handle_arr(self, operands: List[str], line_num: int) -> None:
-        """Handle array declarations and operations."""
+        """Handle array declarations with bounds checking."""
         if len(operands) < 2:
             self._error("Invalid array operation", line_num, ErrorCode.SYNTAX_ERROR)
             return
-            
-        # ARR <type> <name> <size> [initializer] or ARR <type> <name> [initializer]
+
         if operands[0] not in array_types:
             self._error(f"Invalid array type: {operands[0]}", line_num, ErrorCode.INVALID_TYPE)
             return
-            
+
         array_type = operands[0]
         array_name = operands[1]
-        
-        # Check if array is already declared
+
         if self._get_decl(array_name):
             self._error(f"Variable '{array_name}' already declared", line_num, ErrorCode.DUPLICATE_DECLARATION)
             return
-            
-        # Add the array to declarations
-        self.declarations[(self.current_function, array_name)] = {
+
+        initializer = None
+        capacity = None
+
+        for i in range(2, len(operands)):
+            token = operands[i].strip()
+            if token.startswith('[') and token.endswith(']'):
+                initializer = token
+                if i == 3:
+                    size_token = operands[2].strip()
+                    if size_token.isdigit():
+                        capacity = int(size_token)
+                break
+            elif i == 2 and token.isdigit():
+                capacity = int(token)
+
+        if initializer and capacity is None:
+            elements = [e.strip() for e in initializer[1:-1].split(',') if e.strip()]
+            capacity = len(elements)
+
+        if initializer and capacity is not None:
+            elements = [e.strip() for e in initializer[1:-1].split(',') if e.strip()]
+            if len(elements) > capacity:
+                self._error(
+                    f"Array '{array_name}' declared with capacity {capacity} but initialized with {len(elements)} elements",
+                    line_num,
+                    ErrorCode.ARRAY_BOUNDS
+                )
+                return
+
+        decl_info = {
             'type': array_type,
             'mutable': True,
-            'line': line_num
+            'line': line_num,
+            'is_array': True,
+            'kind': 'variable',
+            'capacity': capacity
         }
-        
-        # Handle array initializer if present
-        if len(operands) >= 3:
-            initializer = operands[2]
-            if initializer.startswith('[') and initializer.endswith(']'):
-                # Simple check for array literals
-                pass
+
+        self.declarations[array_name] = decl_info
+        scope = self.current_function if self.current_function else None
+        self.declarations[(scope, array_name)] = decl_info
+        if scope:
+            self.declarations[f"{scope}_{array_name}"] = decl_info
     
     def _handle_push_pop(self, op: str, operands: List[str], line_num: int) -> None:
         """Handle PUSH and POP operations on arrays."""
@@ -688,21 +736,54 @@ class SemanticAnalyzer:
             self._error("PRINT requires at least one argument", line_num, ErrorCode.SYNTAX_ERROR)
             return
             
-        # For PRINT, validate the variable exists
         for var in operands:
-            # Check for pointer dereference (e.g., *ptr)
-            if var.startswith('*'):
-                ptr_name = var[1:]
-                # Check if the pointer exists
-                self._check_variable_exists(ptr_name, line_num)
-                # Check if it's actually a pointer
-                decl = self._get_decl(ptr_name)
-                if decl and not decl['type'].endswith('*'):
-                    self._error(f"Cannot dereference non-pointer variable '{ptr_name}'", 
-                              line_num, ErrorCode.TYPE_MISMATCH)
+            # Skip string literals (they're always valid)
+            if (var.startswith('"') and var.endswith('"')) or \
+               (var.startswith("'") and var.endswith("'")):
+                continue
+                
+            # Check if it's a number
+            if self._is_numeric_literal(var):
+                continue
+                
             # Regular variable
             elif not self._is_literal(var):
                 self._check_variable_exists(var, line_num)
+    
+    def _get_variable_info(self, var_name: str, line_num: int) -> Optional[Dict[str, Any]]:
+        """Get information about a variable, including whether it's an array."""
+        scope = self.current_function
+
+        if '[' in var_name and ']' in var_name:
+            array_name = var_name.split('[')[0].strip()
+            decl = self._get_decl(array_name, scope)
+            if not decl:
+                self._error(f"Array '{array_name}' not declared", line_num, ErrorCode.UNDEFINED_SYMBOL)
+                return None
+            if not decl.get('is_array', False):
+                self._error(f"'{array_name}' is not an array", line_num, ErrorCode.TYPE_MISMATCH)
+                return None
+            return decl
+
+        decl = self._get_decl(var_name, scope)
+        if not decl:
+            self._error(f"Variable '{var_name}' not declared", line_num, ErrorCode.UNDEFINED_SYMBOL)
+            return None
+        return decl
+
+    def _handle_printarr(self, operands: List[str], line_num: int) -> None:
+        """Handle PRINTARR operation for arrays."""
+        if len(operands) != 1:
+            self._error("PRINTARR requires exactly one array variable", line_num, ErrorCode.SYNTAX_ERROR)
+            return
+
+        array_name = operands[0]
+        var_info = self._get_variable_info(array_name, line_num)
+        if not var_info:
+            return
+        if not var_info.get('is_array', False):
+            self._error(f"Variable '{array_name}' is not an array", line_num, ErrorCode.TYPE_MISMATCH)
+
     def _handle_import(self, operands: List[str], line_num: int) -> None:
         """Handle the IMPORT statement."""
         if not operands:
@@ -927,46 +1008,37 @@ HANDLERS = {
     "MOV": "_handle_mov",
     # Pointer operations
     "PTR": "_handle_pointer_operations",
-    # Pointer operations
-    "PTR": "_handle_pointer_operations",
-    
     # Arithmetic operations
     "ADD": "_handle_arithmetic",
     "SUB": "_handle_arithmetic",
     "MUL": "_handle_arithmetic",
     "DIV": "_handle_arithmetic",
     "MOD": "_handle_arithmetic",
-    "INC": "_handle_inc_dec",
-    "DEC": "_handle_inc_dec",
-    
     # Control flow
     "IF": "_handle_if_elif_else",
     "ELIF": "_handle_if_elif_else",
     "ELSE": "_handle_if_elif_else",
-    "FOR": "_handle_loop_start",
-    "WHILE": "_handle_loop_start",
-    "END_LOOP": "_handle_loop_end",
-    
-    # Function calls
+    "WHILE": "_handle_while",
+    "FOR": "_handle_for",
+    # Function operations
     "CALL": "_handle_call",
     "RET": "_handle_ret",
-    
-    # I/O
-    "PRINT": "_handle_print",
-    "PRINTSTR": "_handle_print",
-    "READ": "_handle_read",
-    
-    # Arrays
+    "FNDEF": "_handle_fndef",
+    "FN": "_handle_fn",
+    # Array operations
     "ARR": "_handle_arr",
     "PUSH": "_handle_push_pop",
     "POP": "_handle_push_pop",
     "LEN": "_handle_len",
-    
-    # Error handling
+    # I/O operations
+    "PRINT": "_handle_print",
+    "PRINTSTR": "_handle_print",
+    "PRINTARR": "_handle_printarr",  # Added PRINTARR handler
+    "READ": "_handle_read",
+    # Other
     "ERROR": "_handle_error",
-
-    # Modules
-    "IMPORT": "_handle_import"
+    "IMPORT": "_handle_import",
+    "CONST": "_handle_const",
 }
 
 # Add handler methods for each opcode
