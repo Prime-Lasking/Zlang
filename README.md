@@ -13,7 +13,6 @@
 1. **Get `z.exe`** (single file - no installation needed)
 2. **Setup**: `run z.exe` or `double-click executable` (installs current z.exe and adds to PATH)
 3. **Compile**: `z program.z` (creates program.exe)
-4. **Update**: `z -update` (gets the latest release and replaces the installed `z.exe`)
 
 ```bash
 # Download z.exe, then:
@@ -21,7 +20,6 @@ z.exe                 # Just double-click or run ./z
 z -v                  # Check version
 z hello.z             # Compile to hello.exe
 z program.z -f c      # Generate C source
-z -update             # Update to latest release
 z --help              # Show all options
 ```
 
