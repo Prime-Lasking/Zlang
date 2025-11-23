@@ -742,8 +742,8 @@ class SemanticAnalyzer:
                (var.startswith("'") and var.endswith("'")):
                 continue
                 
-            # Check if it's a number
-            if self._is_numeric_literal(var):
+            # Check if it's a number literal
+            if self._is_literal(var) and self._is_numeric_literal(var):
                 continue
                 
             # Regular variable
