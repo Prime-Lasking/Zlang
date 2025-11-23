@@ -315,7 +315,7 @@ ADD x y result
 | File | Purpose |
 |------|----------|
 | `main.py` | Entry point and CLI (parsing, compilation, compiler discovery) |
-| `setup_update.py` | Setup (PATH install), PATH detection, and updater (`z -update`) |
+| `setup_update.py` | Setup (PATH install) and PATH detection |
 | `lexer.py` | Tokenizes `.z` source into structured instructions |
 | `optimizer.py` | Optimizes instruction set with constant folding |
 | `codegen.py` | Converts optimized code to C with type tracking |
