@@ -56,7 +56,7 @@ Options:
                               exe  → compile to executable (.exe) [default]
                               asm  → generate assembly code (.s)
     -o, --output <file>     Output file name (default: <source>.<format>)
-    -c, --compiler <name>   C compiler to use (clang, gcc) [default: clang]
+    -c, --compiler <name>   C compiler to use (clang, gcc, tcc) [default: clang]
     -h, --help              Show this help
     -v, --version           Show version
 
@@ -135,7 +135,7 @@ def run_command(cmd, check=False):
 def find_compiler(preferred_compiler: Optional[str] = None, silent: bool = False) -> Tuple[Optional[str], Optional[list]]:
     """
     Find available C compiler, using preferred_compiler if specified,
-    trying MSVC on Windows, then clang, then gcc.
+    trying MSVC on Windows, then clang, then gcc, then tcc.
     Returns (compiler_name, command_args) or (None, None) if no compiler found.
     """
     compilers_to_try = []
@@ -196,12 +196,13 @@ def find_compiler(preferred_compiler: Optional[str] = None, silent: bool = False
             except (subprocess.SubprocessError, OSError):
                 pass
     
-    # Add standard compilers to try
+    # Add standard compilers to try (tcc added)
     compilers_to_try.extend([
         ("clang", ["clang"], False),
         ("gcc", ["gcc"], False),
         ("clang", ["clang.exe"], False),  # Windows variants
         ("gcc", ["gcc.exe"], False),
+        ("tcc", ["tcc"], False),          # Tiny C Compiler support
     ])
     
     # Try each compiler
@@ -218,8 +219,21 @@ def find_compiler(preferred_compiler: Optional[str] = None, silent: bool = False
             )
             version = "Microsoft (R) C/C++"
         else:
-            success, out, _ = run_command(cmd + ["--version"])
+            # Try querying version first; if that fails, fall back to checking PATH
+            success, out, err = run_command(cmd + ["--version"])
             version = out.split('\n')[0] if out and success else 'version unknown'
+            if not success:
+                # Some compilers (e.g. tcc) may not support --version; check PATH as a fallback
+                if shutil.which(cmd[0]) is not None:
+                    success = True
+                    # Try a different version flag commonly supported
+                    v_success, v_out, v_err = run_command([cmd[0], "-v"])
+                    if v_success and v_out:
+                        version = v_out.split('\n')[0]
+                    elif v_success and v_err:
+                        version = v_err.split('\n')[0]
+                    else:
+                        version = f"{cmd[0]} (version unknown)"
         
         if success:
             if not silent:
@@ -239,7 +253,7 @@ def find_compiler(preferred_compiler: Optional[str] = None, silent: bool = False
             "Then ensure the compiler is in your system PATH."
         )
     else:
-        error_msg += "Please install clang or gcc and ensure it's in your PATH."
+        error_msg += "Please install clang, gcc or tcc and ensure it's in your PATH."
 
     raise CompilerError(error_msg, error_code=ErrorCode.MISSING_DEPENDENCY)
 
@@ -333,20 +347,22 @@ def compile_zlang(input_path: str, output_path: str, output_format: str, compile
                 '-Wextra',  # Enable extra warnings
                 '-Wno-unused-variable',  # Ignore unused variable warnings
                 '-Wno-unused-but-set-variable',  # Ignore unused but set variable warnings
-                '-std=c17',  # Use C17 standard
             ]
 
             # Add platform-specific flags
             if compiler_name == 'msvc':
                 compile_cmd.extend(['/nologo', '/W4', '/WX', '/O2'])
-            else:  # clang/gcc
+            elif compiler_name in ('clang', 'gcc'):
+                # clang/gcc specific flags
                 compile_cmd.extend(['-march=native', '-fno-strict-aliasing'])
+            elif compiler_name == 'tcc':
+                # tcc is more permissive but doesn't support certain gcc/clang flags;
+                # don't add GCC/Clang-specific tuning flags.
+                pass
 
             if output_format == 's':
                 if compiler_name == 'msvc':
                     compile_cmd.extend(['/Fa', '/c'])
-                else:  # clang/gcc
-                    compile_cmd.extend(['-S', '-fverbose-asm'])
 
             compile_start = time.time()
             try:
@@ -575,8 +591,8 @@ def parse_args(args):
                 print(HELP_TEXT)
                 sys.exit(1)
             compiler = args[i + 1].lower()
-            if compiler not in ["clang", "gcc"]:
-                print_colored(f"Error: Invalid compiler '{compiler}'. Must be 'clang' or 'gcc'.", Colors.RED)
+            if compiler not in ["clang", "gcc", "tcc"]:
+                print_colored(f"Error: Invalid compiler '{compiler}'. Must be 'clang', 'gcc', or 'tcc'.", Colors.RED)
                 sys.exit(1)
             i += 1
             
