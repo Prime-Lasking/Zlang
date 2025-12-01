@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional, Tuple
 
-from setup import Colors, print_colored, is_in_path, run_setup, show_setup_message, handle_cli_setup_and_version, print_version, VERSION
+from setup import Colors, print_colored, is_in_path, run_setup, handle_cli_setup_and_version, print_version, VERSION
 
 try:
     from lexer import parse_z_file
