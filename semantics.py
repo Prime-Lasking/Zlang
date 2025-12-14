@@ -367,8 +367,8 @@ class SemanticAnalyzer:
         """Handle the end of a loop."""
         self.in_loop = False
 
-    def _handle_mov(self, operands: List[str], line_num: int) -> None:
-        """Handle MOV instruction (variable declaration/assignment)."""
+    def _handle_let(self, operands: List[str], line_num: int) -> None:
+        """Handle LET instruction (variable declaration/assignment)."""
         if len(operands) < 2:
             return
 
@@ -377,7 +377,7 @@ class SemanticAnalyzer:
         # Check for pointer dereferencing (e.g., *ptr = value)
         is_pointer_deref = dest.startswith("*")
 
-        # Variable declaration: MOV type var [value]
+        # Variable declaration: LET type var [value]
         if operands[0] in types_set:
             if len(operands) < 2:
                 self._error(
@@ -390,10 +390,10 @@ class SemanticAnalyzer:
             if len(operands) > 2:
                 value = operands[2]
                 self._check_value_type(value, operands[0], line_num)
-        # Assignment: MOV dest value
+        # Assignment: LET dest value
         else:
             if is_pointer_deref:
-                # Handle pointer dereferencing: MOV *ptr value
+                # Handle pointer dereferencing: LET *ptr value
                 ptr_name = dest[1:]  # Remove the *
                 self._check_variable_exists(ptr_name, line_num)
 
@@ -1189,7 +1189,7 @@ class SemanticAnalyzer:
 # Map opcodes to handler methods
 HANDLERS = {
     # Variable operations
-    "MOV": "_handle_mov",
+    "LET": "_handle_let",
     # Pointer operations
     "PTR": "_handle_pointer_operations",
     # Arithmetic operations

@@ -14,7 +14,7 @@ from typing import Optional
 from urllib.request import Request, urlopen
 
 # Version information
-VERSION = "0.12.1"
+VERSION = "0.12.2"
 
 # Initialize colorama for Windows ANSI support
 try:

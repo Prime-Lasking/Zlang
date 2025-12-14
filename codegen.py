@@ -461,10 +461,10 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
             func_depth = max(func_depth - 1, 0)
             if func_depth == 0:
                 current_function = None
-        elif current_function or op == "MOV":
-            # Collect local identifiers based on operation semantics (including global MOV)
+        elif current_function or op == "LET":
+            # Collect local identifiers based on operation semantics (including global LET)
             dests = []
-            if op == "MOV":
+            if op == "LET":
                 if len(operands) >= 2 and operands[0] in [
                     "int",
                     "float",
@@ -726,7 +726,7 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
             indent_level += 1
             continue
 
-        if op == "MOV":
+        if op == "LET":
             if len(operands) >= 2 and operands[0] in [
                 "int",
                 "float",
