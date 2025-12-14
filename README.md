@@ -113,7 +113,7 @@ z program.z -c clang           # Use Clang (default)
 
 ## 📘 Language Overview
 
-Z provides a straightforward way to write procedural programs with explicit instructions like `MOV`, `ADD`, `SUB`, `PRINT`, combined with modern control flow structures.
+Z provides a straightforward way to write procedural programs with explicit instructions like `LET`, `ADD`, `SUB`, `PRINT`, combined with modern control flow structures.
 
 ### 🚀 Quick Example
 
@@ -122,8 +122,8 @@ Z provides a straightforward way to write procedural programs with explicit inst
 // main.z
 IMPORT "math_utils.z"
 FN main():
-    MOV int x 42
-    MOV int y 21
+    LET int x 42
+    LET int y 21
     CALL add(x,y) result
     PRINT result
 ```
@@ -137,16 +137,16 @@ FN fibonacci(int n) -> int:
     // Calculate fibonacci using iterative approach
     CONST int initial_a 0
     CONST int initial_b 1
-    MOV int a initial_a
-    MOV int b initial_b
-    MOV int fib 0
+    LET int a initial_a
+    LET int b initial_b
+    LET int fib 0
 
     FOR i 2..n:
         // Calculate next fibonacci number: fib = a + b
         ADD a b fib
         // Shift: a becomes old b, b becomes new fib
-        MOV a b
-        MOV b fib
+        LET a b
+        LET b fib
 
     RET b
 
