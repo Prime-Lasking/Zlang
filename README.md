@@ -1,5 +1,5 @@
 # Z Compiler v0.12
-
+Zlang, the programming language of the future. Minimalist, Simple and Not perfect 
 🚀 The Compiler for the Z programming language.
 
 **Single File Distribution** • **Integrated Installation** • **No Dependencies** • **Enhanced Robustness**
