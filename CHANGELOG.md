@@ -2,48 +2,48 @@
 
 ## [0.12.3] - 2025-04-12
 
-### 🔒 Security Fixes
+### Security Fixes
 
-#### 1. **Directory Traversal Prevention**
-- **Fixed path validation**: Implemented proper directory traversal prevention in `validate_input_path()`
-- **Cross-drive protection**: Added Windows-specific cross-drive access prevention
-- **Path normalization**: Added proper path normalization and validation
-- **Impact**: Prevents malicious file path attacks that could escape intended directories
+#### 1. Directory Traversal Prevention
+- Fixed path validation: Implemented proper directory traversal prevention in `validate_input_path()`
+- Cross-drive protection: Added Windows-specific cross-drive access prevention
+- Path normalization: Added proper path normalization and validation
+- Impact: Prevents malicious file path attacks that could escape intended directories
 
-#### 2. **Subprocess Shell Injection Prevention**
-- **Removed shell=True**: Removed `shell=True` from subprocess.run() call in program execution
-- **Safe command execution**: Commands now executed directly without shell interpretation
-- **Impact**: Prevents command injection through malicious output filenames
+#### 2. Subprocess Shell Injection Prevention
+- Removed shell=True: Removed `shell=True` from subprocess.run() call in program execution
+- Safe command execution: Commands now executed directly without shell interpretation
+- Impact: Prevents command injection through malicious output filenames
 
-### 🐛 Bug Fixes
+### Bug Fixes
 
-#### 1. **UnboundLocalError in _handle_let**
-- **Fixed variable initialization**: Added `value_type = None` initialization before conditional branches
-- **Prevents runtime errors**: Ensures variable is always defined before use
-- **File**: `semantics.py`
+#### 1. UnboundLocalError in _handle_let
+- Fixed variable initialization: Added `value_type = None` initialization before conditional branches
+- Prevents runtime errors: Ensures variable is always defined before use
+- File: `semantics.py`
 
-#### 2. **Incorrect Duplicate Function Check**
-- **Fixed comparison logic**: Updated duplicate function check to compare actual function names
-- **Proper detection**: Now correctly detects duplicate function declarations
-- **File**: `semantics.py`
+#### 2. Incorrect Duplicate Function Check
+- Fixed comparison logic: Updated duplicate function check to compare actual function names
+- Proper detection: Now correctly detects duplicate function declarations
+- File: `semantics.py`
 
-### 🔧 Technical Changes
+### Technical Changes
 
-#### 1. **Version Management**
-- **Created version.py**: Extracted VERSION to separate module to resolve circular import
-- **Fixed circular dependency**: Resolved import cycle between main.py and setup.py
-- **Impact**: Enables proper PyInstaller packaging
+#### 1. Version Management
+- Created version.py: Extracted VERSION to separate module to resolve circular import
+- Fixed circular dependency: Resolved import cycle between main.py and setup.py
+- Impact: Enables proper PyInstaller packaging
 
-#### 2. **Code Quality**
-- **Added BUGS.md**: Created comprehensive bug tracking document
-- **Security audit**: Conducted full code review identifying 18 issues
-- **Fixed all critical bugs**: Resolved 4 critical security and functional bugs
+#### 2. Code Quality
+- Added BUGS.md: Created comprehensive bug tracking document
+- Security audit: Conducted full code review identifying 18 issues
+- Fixed all critical bugs: Resolved 4 critical security and functional bugs
 
-### 📋 Breaking Changes
+### Breaking Changes
 
 None. This release maintains backward compatibility.
 
-### 📖 Migration Guide
+### Migration Guide
 
 No migration required. Existing Zlang code continues to work without changes.
 
