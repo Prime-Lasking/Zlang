@@ -270,7 +270,9 @@ class SemanticAnalyzer:
 
         # Check for duplicate function declaration
         for key in self.declarations:
-            if isinstance(key, tuple) and len(key) == 2 and key[1] == func_key:
+            # Check both string keys and tuple keys for the function name
+            if (isinstance(key, str) and key == func_key) or \
+               (isinstance(key, tuple) and len(key) == 2 and key[1] == func_name):
                 self._error(
                     f"Duplicate function declaration: '{func_name}'",
                     line_num,
@@ -392,6 +394,9 @@ class SemanticAnalyzer:
                 self._check_value_type(value, operands[0], line_num)
         # Assignment: LET dest value
         else:
+            # Initialize value_type to prevent UnboundLocalError
+            value_type = None
+            
             if is_pointer_deref:
                 # Handle pointer dereferencing: LET *ptr value
                 ptr_name = dest[1:]  # Remove the *
@@ -424,6 +429,7 @@ class SemanticAnalyzer:
 
                 # Type checking for the assigned value
                 value_type = self._infer_type(operands[1])
+            
             if value_type:
                 self._check_type_compatibility(dest, value_type, line_num)
 

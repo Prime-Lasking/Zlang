@@ -8,7 +8,8 @@ import subprocess
 from pathlib import Path
 from typing import Optional, Tuple
 
-from setup import Colors, print_colored, is_in_path, run_setup, handle_cli_setup_and_version, print_version, VERSION
+from setup import Colors, print_colored, is_in_path, run_setup, handle_cli_setup_and_version, print_version
+from version import VERSION
 
 try:
     from lexer import parse_z_file
@@ -81,11 +82,37 @@ def validate_input_path(input_path: str) -> str:
                 file_path=abs_path
             )
 
-        # Basic security check - ensure path doesn't contain suspicious patterns
-        # This is a simple check; in production, more sophisticated validation would be needed
-        if '..' in abs_path or abs_path.startswith('/') and len(abs_path) > 1:
-            # Additional validation could be added here for absolute paths
-            pass
+        # Security check - prevent directory traversal attacks
+        # Normalize the path and ensure it doesn't escape intended directories
+        try:
+            # Get the normalized absolute path
+            normalized = os.path.normpath(abs_path)
+            
+            # Check if the path tries to go up directories
+            if '..' in normalized.split(os.sep):
+                raise CompilerError(
+                    f"Path traversal not allowed: {input_path}",
+                    error_code=ErrorCode.INVALID_FILE_FORMAT,
+                    file_path=abs_path
+                )
+            
+            # On Windows, also check for drive letter traversal
+            if sys.platform == 'win32':
+                # Ensure we're not accessing system directories or other drives
+                drive = os.path.splitdrive(normalized)[0]
+                cwd_drive = os.path.splitdrive(os.getcwd())[0]
+                if drive and cwd_drive and drive.lower() != cwd_drive.lower():
+                    raise CompilerError(
+                        f"Cross-drive access not allowed: {input_path}",
+                        error_code=ErrorCode.INVALID_FILE_FORMAT,
+                        file_path=abs_path
+                    )
+        except (ValueError, OSError) as e:
+            raise CompilerError(
+                f"Invalid path: {e}",
+                error_code=ErrorCode.INVALID_FILE_FORMAT,
+                file_path=abs_path
+            )
 
         return abs_path
     except Exception as e:
@@ -464,8 +491,7 @@ def compile_zlang(input_path: str, output_path: str, output_format: str, compile
                         check=False,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
-                        text=True,
-                        shell=True  # This helps with command execution on Windows
+                        text=True
                     )
                     run_time = time.time() - run_start
                     

@@ -11,10 +11,9 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Optional
-from urllib.request import Request, urlopen
+from urllib.request import Request, urlopen 
+from version import VERSION
 
-# Version information
-VERSION = "0.12.2"
 
 # Initialize colorama for Windows ANSI support
 try:
