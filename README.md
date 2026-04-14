@@ -1,8 +1,10 @@
-# ZLang Compiler v0.13 🚀
+# ZLang Compiler v0.13 (No longer worked on)
 
 **ZLang** – Minimalist **programming language** and **compiler** written in **Python**.
 Produces a **single-file executable** (`z.exe`) with **no dependencies** and **cross-platform support**. Ideal for learning, experimentation, and rapid prototyping.
 
+## No longer worked on
+Due to the low amount of contributors (just 1) and the amount of bugs and horrible code in this project, it is no longer maintained and worked on.
 ---
 
 ![Python](https://img.shields.io/badge/python-3.11-blue)
