@@ -67,12 +67,13 @@ def constant_propagation(
         new_operands = [constants.get(op, op) for op in operands]
 
         # Update constants with new assignments
-        if (
-            op == "LET"
-            and len(new_operands) == 2
-            and is_numeric_operand(new_operands[0])
-        ):
-            constants[new_operands[1]] = new_operands[0]
+        # LET format: LET <dest> <value> or LET <type> <dest> <value>
+        # The value is always the last operand
+        if op == "LET" and len(new_operands) >= 2:
+            value_idx = len(new_operands) - 1
+            dest_idx = len(new_operands) - 2
+            if is_numeric_operand(new_operands[value_idx]):
+                constants[new_operands[dest_idx]] = new_operands[value_idx]
 
         # Check for operations that might invalidate constants
         if op in {"STORE", "CALL", "RET"} and operands and operands[0] in constants:
@@ -88,17 +89,28 @@ def dead_code_elimination(
 ) -> List[Tuple[str, list, int]]:
     """Remove dead code and unused assignments."""
     used_vars = set()
-    # First pass: Find all used variables
+    # First pass: Find all used variables (reads, not writes)
     for op, operands, _ in reversed(instructions):
-        if op == "LET" and len(operands) == 2 and operands[1] not in used_vars:
-            continue  # This is a dead store
-        used_vars.update(op for op in operands if not is_numeric_operand(op))
+        # For LET, only add the value operand (read), not the destination (write)
+        if op == "LET" and len(operands) >= 2:
+            # The last operand is the value being read
+            value_idx = len(operands) - 1
+            if not is_numeric_operand(operands[value_idx]):
+                used_vars.add(operands[value_idx])
+        else:
+            # For other operations, add all non-numeric operands as reads
+            for opnd in operands:
+                if not is_numeric_operand(opnd):
+                    used_vars.add(opnd)
 
     # Second pass: Keep only instructions that contribute to used variables
     optimized = []
     for op, operands, line_num in instructions:
-        if op == "LET" and len(operands) == 2 and operands[1] not in used_vars:
-            continue  # Skip dead stores
+        # Skip LET instructions where destination is never used
+        if op == "LET" and len(operands) >= 2:
+            dest_idx = len(operands) - 2
+            if operands[dest_idx] not in used_vars:
+                continue  # Skip dead store
         optimized.append((op, operands, line_num))
 
     return optimized

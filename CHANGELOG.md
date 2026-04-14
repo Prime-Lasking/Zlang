@@ -1,5 +1,68 @@
 # Changelog
 
+## [0.13.0] - 2026-04-14
+
+### Bug Fixes
+
+#### High Priority
+1. Closure Bug in Handler Creation
+   - Fixed late binding issue in semantics.py handler creation
+   - Use default argument to properly capture loop variable values
+
+2. Redundant Dead Code
+   - Removed unreachable code in main.py run_after_compile check
+
+3. Incomplete Type Mapping
+   - Added missing print_double function for float/double types
+   - Ensures proper printing of floating-point values
+
+4. Incorrect Operand Indexing
+   - Fixed constant propagation to check correct operand index
+   - Value is now correctly identified as last operand in LET instructions
+
+5. Flawed Dead Code Elimination
+   - Improved dead code elimination to properly track variable usage
+   - Now distinguishes between reads and writes for accurate analysis
+
+#### Medium Priority
+6. Incorrect ELSE Detection
+   - Fixed lexer to use word boundary regex for ELSE: detection
+   - Prevents incorrect matching of patterns like ELSE:IF
+
+7. Missing Handler Entries
+   - Removed non-existent handler entries from HANDLERS dictionary
+   - Cleaned up WHILE, FOR, CONST, READ, and ERROR mappings
+
+8. Inconsistent Array Type Mapping
+   - Changed Astring mapping from char* to const char* for consistency
+   - Aligns with string handling throughout the codebase
+
+9. Potential Integer Overflow
+   - Fixed overflow check to use proper type casting
+   - Result now explicitly cast to int after overflow check
+
+10. Memory Leak in array_free
+    - Added NULL check before freeing string elements
+    - Prevents undefined behavior from freeing NULL pointers
+
+#### Low Priority
+11. Redundant Import Check
+    - Removed redundant IMPORT handling in codegen.py
+    - Cleaned up dead code that performed no useful operation
+
+### Code Quality
+- Removed BUGS.md after fixing all documented issues
+- Improved code reliability and safety across all modules
+- Enhanced type consistency and memory management
+
+### Breaking Changes
+None. This release maintains backward compatibility.
+
+### Migration Guide
+No migration required. Existing Zlang code continues to work without changes.
+
+---
+
 ## [0.12.3] - 2025-04-12
 
 ### Security Fixes

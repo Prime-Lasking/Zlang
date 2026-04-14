@@ -190,7 +190,8 @@ def parse_z_file(
                 tokens = TOKEN_RE.findall(line)
         else:
             # Handle ELSE: as a single token
-            if "ELSE:" in line and not ("IF" in line or "ELIF" in line):
+            # Use word boundary to avoid matching ELSE:IF or similar patterns
+            if re.search(r'\bELSE:\b', line) and not ("IF" in line or "ELIF" in line):
                 # Replace 'ELSE:' with 'ELSE' to handle it as a single token
                 line = line.replace("ELSE:", "ELSE")
             tokens = TOKEN_RE.findall(line)

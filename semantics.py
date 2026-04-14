@@ -1208,8 +1208,7 @@ HANDLERS = {
     "IF": "_handle_if_elif_else",
     "ELIF": "_handle_if_elif_else",
     "ELSE": "_handle_if_elif_else",
-    "WHILE": "_handle_while",
-    "FOR": "_handle_for",
+    # Note: WHILE and FOR are handled by _handle_loop_start/_handle_loop_end
     # Function operations
     "CALL": "_handle_call",
     "RET": "_handle_ret",
@@ -1224,11 +1223,10 @@ HANDLERS = {
     "PRINT": "_handle_print",
     "PRINTSTR": "_handle_print",
     "PRINTARR": "_handle_printarr",  # Added PRINTARR handler
-    "READ": "_handle_read",
+    # Note: READ and ERROR are not implemented in semantic analysis
     # Other
-    "ERROR": "_handle_error",
     "IMPORT": "_handle_import",
-    "CONST": "_handle_const",
+    # Note: CONST is handled inline in the lexer
 }
 
 # Add handler methods for each opcode
@@ -1244,7 +1242,7 @@ for op, handler_name in HANDLERS.items():
         }:
             # These handlers need the operation type as first argument
             def make_handler(op_name, h_name):
-                def handler(self, operands, line_num):
+                def handler(self, operands, line_num, op_name=op_name):
                     return getattr(self, h_name)(op_name, operands, line_num)
 
                 return handler

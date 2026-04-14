@@ -482,8 +482,7 @@ def compile_zlang(input_path: str, output_path: str, output_format: str, compile
             
             # Run the program if requested and we have an executable
             if run_after_compile and output_format == 'exe' and os.path.exists(abs_output_path):
-                if not run_after_compile:
-                    print("\n=== Running Program ===")
+                print("\n=== Running Program ===")
                 try:
                     run_start = time.time()
                     result = subprocess.run(

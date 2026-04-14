@@ -85,7 +85,7 @@ def add_overflow_check(
             f'"Integer overflow in {operation} operation at line {line_num}");'
         )
         lines.append(f"{prefix}    }}")
-        lines.append(f"{prefix}    {res_var} = {a} {operation} {b};")
+        lines.append(f"{prefix}    {res_var} = (int)_temp;")
         lines.append(f"{prefix}}}")
     else:
         # For / and % we just do the operation directly
@@ -246,7 +246,8 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
         "    if (arr) {",
         '        if (strcmp(arr->type, "string") == 0) {',
         "            for (size_t i = 0; i < arr->size; i++) {",
-        "                free(*((char**)arr->data + i));",
+        "                char* elem = *((char**)arr->data + i);",
+        "                if (elem) free(elem);",
         "            }",
         "        }",
         "        free(arr->data);",
@@ -338,6 +339,10 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
         "",
         "void print_ptr(const void* p) {",
         '    printf("%p\\n", p);',
+        "}",
+        "",
+        "void print_double(double d) {",
+        '    printf("%g\\n", d);',
         "}",
         "void error_exit(int code, const char* msg) {",
         '    fprintf(stderr, "Error [E%d]: %s\\n", code, msg);',
@@ -980,10 +985,6 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
                 )
             )
             continue
-        if op == "IMPORT":
-            file_name = operands[0]
-            if len(operands) == 1:
-                print()
         if op == "PRINT":
             printing_types = {
                 "int": "d",
@@ -1332,7 +1333,7 @@ def generate_c_code(instructions, variables, declarations, z_file="unknown.z"):
                     "Afloat": "float",
                     "Adouble": "double",
                     "Abool": "bool",
-                    "Astring": "char*",
+                    "Astring": "const char*",
                 }
                 c_type = type_map.get(
                     arr_type, "double"
