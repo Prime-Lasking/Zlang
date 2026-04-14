@@ -1,9 +1,7 @@
-# ZLang Compiler v0.12 🚀
+# ZLang Compiler v0.13 🚀
 
 **ZLang** – Minimalist **programming language** and **compiler** written in **Python**.
 Produces a **single-file executable** (`z.exe`) with **no dependencies** and **cross-platform support**. Ideal for learning, experimentation, and rapid prototyping.
-
-**Keywords:** ZLang, programming language, compiler, Python, single-file executable, interpreter, minimalist, cross-platform.
 
 ---
 
